@@ -4266,11 +4266,42 @@ body.review-logs-page .filter-logs-modal-header {
   margin-bottom: 14px;
 }
 
+body.review-logs-page .quicklog-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 body.review-logs-page .filter-logs-modal-header h3 {
   margin: 0;
   color: #0B4F8A;
   font-size: 22px;
   line-height: 1.1;
+}
+
+body.review-logs-page .modal-close {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(11,79,138,0.08);
+  color: #0B4F8A;
+  cursor: pointer;
+  font-size: 26px;
+  font-weight: 900;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+body.review-logs-page .modal-close:hover,
+body.review-logs-page .modal-close:focus-visible {
+  background: rgba(11,79,138,0.16);
+  outline: 2px solid rgba(11,79,138,0.22);
+  outline-offset: 2px;
 }
 
 body.review-logs-page .filter-logs-modal-body {
@@ -4563,6 +4594,26 @@ body.review-logs-page .notification-admin-controls {
   gap: 10px;
   flex-wrap: wrap;
   margin-bottom: 12px;
+}
+
+body.review-logs-page .notification-unrecognized-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid rgba(11,79,138,0.22);
+  border-radius: 8px;
+  background: #fff;
+  color: #0B4F8A;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+body.review-logs-page .notification-unrecognized-filter input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #0B4F8A;
 }
 
 body.review-logs-page .notification-admin-status {

@@ -1265,7 +1265,6 @@ const notificationFilterElements = {
 const recognitionExportElements = {
   modal: document.getElementById("recognitionExportModal"),
   close: document.getElementById("recognitionExportClose"),
-  cancel: document.getElementById("cancelRecognitionExportBtn"),
   run: document.getElementById("runRecognitionExportBtn"),
   format: document.getElementById("recognitionExportFormat"),
   scope: document.getElementById("recognitionExportScope"),
@@ -2556,9 +2555,6 @@ if (notificationFilterElements.reset) {
 if (recognitionExportElements.close) {
   recognitionExportElements.close.addEventListener("click", closeRecognitionExportModal);
 }
-if (recognitionExportElements.cancel) {
-  recognitionExportElements.cancel.addEventListener("click", closeRecognitionExportModal);
-}
 if (recognitionExportElements.modal) {
   recognitionExportElements.modal.addEventListener("click", (event) => {
     if (event.target === recognitionExportElements.modal) closeRecognitionExportModal();
@@ -2605,6 +2601,24 @@ function createNotificationAdminControls(statusText = "") {
   status.className = "notification-admin-status";
   status.textContent = statusText;
 
+  const unrecognizedLabel = document.createElement("label");
+  unrecognizedLabel.className = "notification-unrecognized-filter";
+  const unrecognizedCheckbox = document.createElement("input");
+  unrecognizedCheckbox.id = "filterUnrecognizedNotifications";
+  unrecognizedCheckbox.type = "checkbox";
+  unrecognizedCheckbox.checked = notificationFilters.recognition === "not_given";
+  unrecognizedCheckbox.addEventListener("change", () => {
+    notificationFilters = {
+      ...notificationFilters,
+      recognition: unrecognizedCheckbox.checked ? "not_given" : "all"
+    };
+    void loadNotifications("", { resetPage: true });
+  });
+  const unrecognizedText = document.createElement("span");
+  unrecognizedText.textContent = "Unrecognized only";
+  unrecognizedLabel.appendChild(unrecognizedCheckbox);
+  unrecognizedLabel.appendChild(unrecognizedText);
+
   const filterButton = document.createElement("button");
   filterButton.id = "filterNotificationsBtn";
   filterButton.className = "blue-button";
@@ -2613,6 +2627,7 @@ function createNotificationAdminControls(statusText = "") {
   filterButton.addEventListener("click", () => {
     void openNotificationFilterModal();
   });
+  controls.appendChild(unrecognizedLabel);
   controls.appendChild(filterButton);
 
   const exportButton = document.createElement("button");
