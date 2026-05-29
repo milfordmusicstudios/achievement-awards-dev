@@ -586,12 +586,13 @@ export async function initStaffChallengesUI({ studioId, user, roles, showToast }
       ? new Set(options.allowedKeys)
       : null;
     const hideWhenEmpty = options?.hideWhenEmpty === true;
+    const showZero = options?.showZero === true;
     const chips = [
       { key: "new", label: "Invited", value: Number(newCount || 0) },
       { key: "active", label: "Accepted", value: Number(activeCount || 0) },
       { key: "pending", label: "Pending", value: Number(pendingCount || 0) },
       { key: "completed", label: "Completed", value: Number(completedCount || 0) }
-    ].filter(entry => entry.value > 0 && (!allowed || allowed.has(entry.key)));
+    ].filter(entry => (entry.value > 0 || showZero) && (!allowed || allowed.has(entry.key)));
 
     if (!chips.length) return hideWhenEmpty ? "" : '<span class="challenge-status-empty">No activity yet</span>';
     return chips
@@ -611,6 +612,39 @@ export async function initStaffChallengesUI({ studioId, user, roles, showToast }
       newCount: invitedCount,
       activeCount,
       pendingCount,
+      completedCount
+    };
+  };
+
+  const fetchWeeklyChallengeStatusCounts = async (weeklyChallengeId) => {
+    const challengeId = String(weeklyChallengeId || "").trim();
+    if (!challengeId || !ensureValidStudioId()) {
+      return { totalAssigned: 0, invitedCount: 0, completedCount: 0 };
+    }
+
+    const [studentsResult, completionsResult] = await Promise.all([
+      supabase
+        .from("users")
+        .select("id", { count: "exact", head: true })
+        .eq("studio_id", resolvedStudioId)
+        .eq("active", true)
+        .is("deactivated_at", null)
+        .contains("roles", ["student"]),
+      supabase
+        .from("weekly_challenge_completions")
+        .select("id", { count: "exact", head: true })
+        .eq("studio_id", resolvedStudioId)
+        .eq("challenge_id", challengeId)
+    ]);
+
+    if (studentsResult.error) throw studentsResult.error;
+    if (completionsResult.error) throw completionsResult.error;
+
+    const totalAssigned = Number(studentsResult.count || 0);
+    const completedCount = Number(completionsResult.count || 0);
+    return {
+      totalAssigned,
+      invitedCount: Math.max(totalAssigned - completedCount, 0),
       completedCount
     };
   };
@@ -995,6 +1029,10 @@ export async function initStaffChallengesUI({ studioId, user, roles, showToast }
             <span>&#9733; Studio Wide Challenge</span>
             <span>Week ${escapeHtml(String(row?.week_number || ""))}</span>
           </div>
+          ${isActiveMode ? `<div class="challenge-status-chips">${renderStatusChips(
+            resolveChallengeListStatusCounts(row),
+            { allowedKeys: ["new", "completed"], showZero: true }
+          )}</div>` : ""}
           <div class="challenge-meta-card">
             <div class="challenge-meta-grid">
               <div class="challenge-detail-meta-cell"><span class="challenge-detail-meta-label">Points</span><span class="challenge-detail-meta-value">${escapeHtml(weeklyPointText(row))}</span></div>
@@ -1315,6 +1353,16 @@ export async function initStaffChallengesUI({ studioId, user, roles, showToast }
       if (!isEndedTab) {
         try {
           weeklyRow = normalizeWeeklyChallengeForStaff(await getCurrentChallenge());
+          if (weeklyRow?.weekly_challenge_id) {
+            try {
+              const weeklyCounts = await fetchWeeklyChallengeStatusCounts(weeklyRow.weekly_challenge_id);
+              weeklyRow.total_assigned = weeklyCounts.totalAssigned;
+              weeklyRow.new_count = weeklyCounts.invitedCount;
+              weeklyRow.completed_count = weeklyCounts.completedCount;
+            } catch (countError) {
+              console.error("[ChallengesUI] failed to load weekly challenge status counts", countError);
+            }
+          }
         } catch (weeklyError) {
           console.error("[ChallengesUI] failed to load weekly challenge for staff", weeklyError);
         }
@@ -1365,7 +1413,12 @@ export async function initStaffChallengesUI({ studioId, user, roles, showToast }
           <div class="challenge-active-date">${row?.source === "weekly" ? `Week ${escapeHtml(String(row.week_number || ""))}` : `${isEndedTab ? "Ended" : "Ends"} ${escapeHtml(String(row.end_date || ""))}`}</div>
         </div>
         <div class="challenge-active-meta is-subtle">${row?.source === "weekly" ? `Studio-wide weekly challenge - ${escapeHtml(weeklyPointText(row))}` : `Assigned to ${Number(row.total_assigned || 0)} students`}</div>
-        ${row?.source === "weekly" ? "" : `<div class="challenge-status-chips">${renderStatusChips(statusCounts)}</div>`}
+        <div class="challenge-status-chips">${renderStatusChips(
+          statusCounts,
+          row?.source === "weekly"
+            ? { allowedKeys: ["new", "completed"], showZero: true }
+            : {}
+        )}</div>
       </div>
     `;
     }).join("");
