@@ -17,6 +17,7 @@ function showError(message) {
   if (!errorEl) return;
   errorEl.textContent = message;
   errorEl.style.display = "block";
+  setInviteStatusState("error");
 }
 
 function clearError() {
@@ -24,6 +25,14 @@ function clearError() {
   if (!errorEl) return;
   errorEl.textContent = "";
   errorEl.style.display = "none";
+  setInviteStatusState("");
+}
+
+function setInviteStatusState(state) {
+  const statusEl = qs("inviteStatus");
+  if (!statusEl) return;
+  statusEl.classList.toggle("is-success", state === "success");
+  statusEl.classList.toggle("is-error", state === "error");
 }
 
 function setAuthButtonsEnabled(enabled) {
@@ -47,6 +56,10 @@ function updateInviteHeading(studioName) {
   const heading = qs("inviteWelcome");
   if (!heading) return;
   heading.textContent = studioName ? `Welcome to ${studioName}` : "Welcome to this studio";
+  const studioNameEl = qs("studioNameDisplay");
+  if (studioNameEl) {
+    studioNameEl.textContent = studioName || "Music Amplified";
+  }
 }
 
 function setInvitePrompt(text) {
@@ -61,6 +74,7 @@ async function validateInvite(token) {
 
   const statusEl = qs("inviteStatus");
   const detailsEl = qs("inviteDetails");
+  setInviteStatusState("");
   setText(statusEl, "Validating...");
   setText(detailsEl, "");
 
@@ -112,6 +126,7 @@ async function validateInvite(token) {
   }
 
   setText(statusEl, "Invite validated.");
+  setInviteStatusState("success");
   if (studioName) {
     setText(detailsEl, `You are invited to ${studioName}.`);
   }
@@ -123,10 +138,13 @@ async function validateInvite(token) {
 document.addEventListener("DOMContentLoaded", async () => {
   const tokenInput = qs("inviteToken");
   const urlToken = new URLSearchParams(window.location.search).get("token");
+  const manualTokenGroup = qs("manualTokenGroup");
   if (tokenInput && urlToken) {
     tokenInput.value = urlToken;
+    if (manualTokenGroup) manualTokenGroup.classList.add("is-hidden");
     await validateInvite(urlToken);
   } else {
+    if (manualTokenGroup) manualTokenGroup.classList.remove("is-hidden");
     setValidateVisible(true);
   }
 

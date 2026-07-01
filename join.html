@@ -8,6 +8,7 @@
   <title>Join Studio | Music Amplified</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="join.css" />
   <meta name="theme-color" content="#0B4F8A" />
   <meta name="mobile-web-app-capable" content="yes" />
   <link rel="manifest" href="manifest.json" />
@@ -18,69 +19,79 @@
   
   <link rel="apple-touch-icon" href="images/pwa/apple-touch-icon.png?v=20260421a" />
 </head>
-<body class="white-page">
+<body class="white-page join-page">
   <div id="envBadge" class="env-badge" style="display:none;"></div>
 
-  <main class="app">
-    <h2>Join a Studio</h2>
+  <main class="app join-shell">
+    <section class="join-card" aria-labelledby="inviteWelcome">
+      <img src="images/logos/amplified.png" alt="Music Amplified" class="join-logo" />
 
-    <section class="settings-form" style="max-width:520px; margin: 0 auto 20px;">
-      <h3 id="inviteHeading">Join with Invite</h3>
-
-      <label for="inviteToken">Invite Token</label>
-      <input id="inviteToken" type="text" placeholder="Paste your invite token" />
-
-      <p id="inviteStatus" style="margin-top:10px;">Paste an invite token to continue.</p>
-      <p id="inviteDetails" style="margin-top:6px;"></p>
-      <p id="inviteError" style="color:#c62828; display:none; margin-top:10px;"></p>
-
-      <div id="validateRow" class="button-row" style="margin-top:14px; display:none;">
-        <button id="validateInviteBtn" type="button" class="blue-button">Validate Invite</button>
+      <div class="join-header">
+        <p class="join-kicker">Studio invitation</p>
+        <h1 id="inviteWelcome">Welcome to this studio</h1>
+        <p id="studioNameDisplay" class="join-studio-name">Music Amplified</p>
+        <p id="invitePrompt" class="join-prompt">Validate your invite to log in or create an account.</p>
       </div>
-    </section>
 
-    <section id="authPanels" class="settings-form" style="max-width:520px; margin: 0 auto 20px; display:none;">
-      <h3 id="inviteWelcome">Welcome to this studio</h3>
-      <p id="invitePrompt">You have been invited to join this studio. Please log in or create an account below.</p>
+      <section class="join-invite-panel" aria-labelledby="inviteHeading">
+        <h2 id="inviteHeading">Join with Invite</h2>
 
-      <div style="display:grid; gap:16px;">
-        <form id="loginFormInline" class="settings-form" style="padding:0;">
-          <h4>Log in</h4>
+        <div id="manualTokenGroup" class="join-token-group">
+          <label for="inviteToken">Invite Token</label>
+          <input id="inviteToken" type="text" placeholder="Paste your invite token" />
+        </div>
+
+        <div class="join-status-wrap">
+          <p id="inviteStatus" class="join-status">Paste an invite token to continue.</p>
+          <p id="inviteDetails" class="join-details"></p>
+          <p id="inviteError" class="join-error" style="display:none;"></p>
+        </div>
+
+        <div id="validateRow" class="button-row join-validate-row" style="display:none;">
+          <button id="validateInviteBtn" type="button" class="blue-button">Validate Invite</button>
+        </div>
+      </section>
+
+      <section id="authPanels" class="join-auth-panel" style="display:none;">
+        <div class="join-auth-grid">
+          <form id="loginFormInline" class="join-auth-card">
+            <h2>Log in</h2>
           <label for="loginEmailInline">Email</label>
           <input id="loginEmailInline" type="email" autocomplete="email" />
 
           <label for="loginPasswordInline">Password</label>
           <input id="loginPasswordInline" type="password" autocomplete="current-password" />
 
-          <p id="loginErrorInline" style="color:#c62828; display:none; margin-top:10px;"></p>
-          <p id="loginSuccessInline" style="color:#0b7a3a; display:none; margin-top:10px;"></p>
+            <p id="loginErrorInline" class="join-error" style="display:none;"></p>
+            <p id="loginSuccessInline" class="join-success" style="display:none;"></p>
 
-          <div class="button-row" style="margin-top:14px;">
-            <button type="submit" class="blue-button">Log in</button>
-          </div>
-        </form>
+            <div class="button-row join-action-row">
+              <button type="submit" class="blue-button">Log in</button>
+            </div>
+          </form>
 
-        <form id="signupFormInline" class="settings-form" style="padding:0;">
-          <h4>Create account</h4>
-          <label for="signupEmailInline">Email</label>
-          <input id="signupEmailInline" type="email" autocomplete="email" />
+          <form id="signupFormInline" class="join-auth-card">
+            <h2>Create account</h2>
+            <label for="signupEmailInline">Email</label>
+            <input id="signupEmailInline" type="email" autocomplete="email" />
 
-          <label for="signupPasswordInline">Password</label>
-          <input id="signupPasswordInline" type="password" autocomplete="new-password" />
+            <label for="signupPasswordInline">Password</label>
+            <input id="signupPasswordInline" type="password" autocomplete="new-password" />
 
-          <p id="signupErrorInline" style="color:#c62828; display:none; margin-top:10px;"></p>
-          <p id="signupSuccessInline" style="color:#0b7a3a; display:none; margin-top:10px;"></p>
+            <p id="signupErrorInline" class="join-error" style="display:none;"></p>
+            <p id="signupSuccessInline" class="join-success" style="display:none;"></p>
 
-          <div class="button-row" style="margin-top:14px;">
-            <button type="submit" class="blue-button">Create account</button>
-          </div>
-        </form>
+            <div class="button-row join-action-row">
+              <button type="submit" class="blue-button">Create account</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <div class="join-back-row">
+        <button id="backBtn" type="button" class="blue-button join-secondary-button">Back</button>
       </div>
     </section>
-
-    <div class="button-row" style="margin-top:18px;">
-      <button id="backBtn" type="button" class="blue-button">Back</button>
-    </div>
   </main>
 
   <script src="config.js"></script>
