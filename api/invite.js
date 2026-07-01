@@ -5,6 +5,8 @@
 const { createClient } = require("@supabase/supabase-js");
 const crypto = require("crypto");
 
+const PROD_APP_BASE_URL = "https://awards.milfordmusic.com";
+
 function setCors(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -21,6 +23,30 @@ function parseBody(req) {
   }
 }
 
+function normalizeBaseUrl(value) {
+  if (!value) return "";
+  try {
+    const url = new URL(String(value).trim());
+    return url.origin.replace(/\/+$/, "");
+  } catch {
+    return "";
+  }
+}
+
+function buildInviteRedirect(token) {
+  const baseUrl = normalizeBaseUrl(process.env.APP_BASE_URL) || PROD_APP_BASE_URL;
+  const productionBase = normalizeBaseUrl(PROD_APP_BASE_URL);
+
+  // Invite emails must never point at preview/dev hosts. If the environment is stale,
+  // use the public production app instead of sending an unreachable callback URL.
+  const safeBaseUrl = baseUrl === productionBase ? baseUrl : productionBase;
+  return `${safeBaseUrl}/auth-callback.html?token=${encodeURIComponent(token)}`;
+}
+
+function buildManualInviteLink(token) {
+  return `${PROD_APP_BASE_URL}/join.html?token=${encodeURIComponent(token)}`;
+}
+
 module.exports = async (req, res) => {
   setCors(res);
 
@@ -32,8 +58,8 @@ module.exports = async (req, res) => {
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
-  const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, APP_BASE_URL } = process.env;
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !APP_BASE_URL) {
+  const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = process.env;
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     return res.status(500).json({ ok: false, error: "Missing server configuration" });
   }
 
@@ -82,7 +108,7 @@ module.exports = async (req, res) => {
     return res.status(500).json({ ok: false, error: inviteErr.message || "Invite insert failed" });
   }
 
-  const redirectTo = `${APP_BASE_URL.replace(/\/+$/, "")}/auth-callback.html?token=${token}`;
+  const redirectTo = buildInviteRedirect(token);
   const { error: emailErr } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
     redirectTo
   });
@@ -91,5 +117,12 @@ module.exports = async (req, res) => {
     return res.status(500).json({ ok: false, error: emailErr.message || "Invite email failed" });
   }
 
-  return res.status(200).json({ ok: true, token, studio_id: studioId, email });
+  return res.status(200).json({
+    ok: true,
+    token,
+    invite_link: buildManualInviteLink(token),
+    auth_callback_url: redirectTo,
+    studio_id: studioId,
+    email
+  });
 };

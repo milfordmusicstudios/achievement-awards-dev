@@ -71,12 +71,19 @@ async function validateInvite(token) {
   }
   console.log("[Join] validating token", token);
 
-  const { data, error } = await supabase.rpc("validate_invite_token", { p_token: token });
+  const { data, error } = await supabase.rpc("inspect_invite_token", { p_token: token });
   const invite = Array.isArray(data) ? data[0] : data;
 
-  if (error || !invite) {
-    setText(statusEl, "Invite not found, expired, or already used.");
-    showError("We could not find a valid invite for this token.");
+  if (error || !invite || !invite.valid) {
+    const status = String(invite?.status || "").toLowerCase();
+    const message =
+      status === "expired" ? "This invite has expired." :
+      status === "revoked" ? "This invite has been revoked." :
+      status === "used" || status === "accepted" ? "This invite has already been used." :
+      status === "not_found" ? "We could not find an invite for this token." :
+      error?.message || invite?.error || "We could not validate this invite.";
+    setText(statusEl, "Invite is not active.");
+    showError(message);
     clearPendingInvite();
     setValidateVisible(true);
     return;
@@ -186,7 +193,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         email,
         password,
         options: {
-          emailRedirectTo: "https://achievement-awards-dev.vercel.app/auth-callback.html",
+          emailRedirectTo: `${window.location.origin}/auth-callback.html`,
         },
       });
       if (error) {

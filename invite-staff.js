@@ -42,7 +42,7 @@ async function loadPendingInvites(studioId) {
   }
 
   data.forEach(invite => {
-    const inviteLink = `${window.location.origin}/auth-callback.html?token=${invite.token}`;
+    const inviteLink = `${window.location.origin}/join.html?token=${invite.token}`;
     const row = document.createElement("div");
     row.className = "pending-invite-card";
     row.style.padding = "10px";
@@ -197,7 +197,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
       if (linkBox) linkBox.style.display = "block";
       if (linkInput && payload?.token) {
-        linkInput.value = `${window.location.origin}/auth-callback.html?token=${payload.token}`;
+        linkInput.value = payload.invite_link || `${window.location.origin}/join.html?token=${payload.token}`;
       }
 
       await loadPendingInvites(studioId);

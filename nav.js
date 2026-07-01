@@ -6,7 +6,7 @@ import { supabase } from "./supabaseClient.js";
 
 const ADMIN_MODE_KEY = "aa.adminModeEnabled";
 const REVIEW_LOGS_SEEN_PREFIX = "aa.reviewLogsSeen.";
-const AUTH_PAGES = new Set(["login.html", "signup.html", "forgot-password.html", "info.html", "info"]);
+const AUTH_PAGES = new Set(["login.html", "signup.html", "forgot-password.html", "reset-password.html", "auth-callback.html", "join.html", "info.html", "info"]);
 const STAFF_ONLY_PAGES = new Set([
   "review-logs.html",
   "log-points.html",

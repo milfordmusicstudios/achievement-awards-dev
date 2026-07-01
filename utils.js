@@ -97,7 +97,7 @@ export async function clearAppSessionCache(reason = "unknown") {
   console.log(`[Cache] cleared ${reason}`);
 }
 
-const AUTH_PAGES = new Set(["login.html", "signup.html", "forgot-password.html", "info.html", "info"]);
+const AUTH_PAGES = new Set(["login.html", "signup.html", "forgot-password.html", "reset-password.html", "auth-callback.html", "join.html", "info.html", "info"]);
 const REDIRECT_KEY = "didRedirectToLogin";
 let didWarnRedirect = false;
 
