@@ -140,10 +140,26 @@ async function loadTeachersForStudio(studioId) {
 
 async function resolveInviteContext(token) {
   if (!token) return null;
+  const { data: authData } = await supabase.auth.getUser();
+  const authUser = authData?.user || null;
+  const { data: inviteCheck, error: inviteCheckErr } = await supabase.rpc("inspect_invite_token", { p_token: token });
+  console.log("[FinishSetup] pre-accept invite inspection", {
+    authUserId: authUser?.id || null,
+    authEmail: authUser?.email || null,
+    invite: Array.isArray(inviteCheck) ? inviteCheck[0] : inviteCheck,
+    error: inviteCheckErr || null
+  });
+
   const { data, error } = await supabase.rpc("accept_invite", { p_token: token });
   console.log("[FinishSetup] accept_invite result", { data, error });
   if (error || !data?.ok) {
-    return { ok: false, error: error?.message || data?.error || "Invite not accepted" };
+    console.error("[FinishSetup] accept_invite failed", {
+      tokenPresent: Boolean(token),
+      authUserId: authUser?.id || null,
+      error: error || null,
+      data: data || null
+    });
+    return { ok: false, error: error?.message || data?.message || data?.error || "Invite not accepted" };
   }
   const storedHint = localStorage.getItem("pendingInviteRoleHint");
   const roleHint = data?.role_hint || data?.role || storedHint || null;
@@ -154,6 +170,88 @@ async function resolveInviteContext(token) {
     invitedRole: roleHint,
     roles
   };
+}
+
+async function verifyStudioMembership({ studioId, roles }) {
+  const { data: authData, error: authErr } = await supabase.auth.getUser();
+  const authUser = authData?.user || null;
+  const uid = authUser?.id || null;
+
+  console.log("[FinishSetup] membership verification start", {
+    authUserId: uid,
+    authError: authErr || null,
+    studioId,
+    expectedRoles: roles || []
+  });
+
+  if (!uid) {
+    console.error("[FinishSetup] membership verification failed: missing authenticated user", { authErr });
+    return false;
+  }
+
+  const { data: studioRow, error: studioErr } = await supabase
+    .from("studios")
+    .select("id, name, slug")
+    .eq("id", studioId)
+    .maybeSingle();
+  console.log("[FinishSetup] studio existence check", { studioId, studioRow, studioErr });
+
+  const { data: memberRow, error: memberErr } = await supabase
+    .from("studio_members")
+    .select("studio_id, user_id, roles")
+    .eq("studio_id", studioId)
+    .eq("user_id", uid)
+    .maybeSingle();
+  console.log("[FinishSetup] post-accept studio_members check", {
+    studioId,
+    userId: uid,
+    memberRow,
+    memberErr
+  });
+
+  if (memberErr) {
+    console.error("[FinishSetup] studio_members verification query failed", memberErr);
+  }
+  if (memberRow?.studio_id) {
+    return true;
+  }
+
+  const rolesToJoin = Array.isArray(roles) && roles.length ? roles : ["parent"];
+  const { data: joinData, error: joinErr } = await supabase.rpc("join_studio", {
+    p_studio_id: studioId,
+    p_roles: rolesToJoin
+  });
+
+  console.log("[FinishSetup] join_studio fallback result", {
+    studioId,
+    userId: uid,
+    rolesToJoin,
+    data: joinData || null,
+    error: joinErr || null
+  });
+
+  if (joinErr) {
+    console.error("[FinishSetup] join_studio fallback failed", joinErr);
+    throw joinErr;
+  }
+
+  const { data: retryRow, error: retryErr } = await supabase
+    .from("studio_members")
+    .select("studio_id, user_id, roles")
+    .eq("studio_id", studioId)
+    .eq("user_id", uid)
+    .maybeSingle();
+  console.log("[FinishSetup] studio_members check after join_studio fallback", {
+    studioId,
+    userId: uid,
+    retryRow,
+    retryErr
+  });
+
+  if (retryErr) {
+    console.error("[FinishSetup] studio_members retry verification failed", retryErr);
+  }
+  return Boolean(retryRow?.studio_id);
 }
 
 function getAccountType() {
@@ -293,32 +391,23 @@ document.addEventListener("DOMContentLoaded", async () => {
     localStorage.removeItem("pendingInviteRoleHint");
     console.log("[FinishSetup] invite accepted ok");
 
-    const ensureStudioMembership = async (studioId) => {
-      const { data: authData } = await supabase.auth.getUser();
-      const uid = authData?.user?.id;
-      if (!uid) return false;
-
-      const rolesToJoin = ["parent"];
-      const { error: joinErr } = await supabase.rpc('join_studio', {
-        p_studio_id: studioId,
-        p_roles: rolesToJoin
-      });
-
-      if (joinErr) {
-        console.error("join_studio failed", joinErr);
-        throw joinErr;
-      }
-      return true;
-    };
-
     let membershipOk = false;
     try {
-      membershipOk = await ensureStudioMembership(contextResult.studioId);
-    } catch {
-      showError("Could not join studio. Please contact an admin.");
+      membershipOk = await verifyStudioMembership({
+        studioId: contextResult.studioId,
+        roles: contextResult.roles || []
+      });
+    } catch (err) {
+      console.error("[FinishSetup] Could not verify or create studio membership", err);
+      showError(`Could not join studio: ${err?.message || "Unknown Supabase error"}`);
     }
     console.log("[FinishSetup][Guard] studio membership exists:", Boolean(membershipOk));
     if (!membershipOk) {
+      console.error("[FinishSetup] membership verification failed without a thrown Supabase error", {
+        studioId: contextResult.studioId,
+        roles: contextResult.roles || []
+      });
+      showError("Could not join studio: membership was not created or is blocked by database policies.");
       disableForm(true);
       return;
     }
