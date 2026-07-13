@@ -36,14 +36,25 @@ function getInviteToken() {
   return token;
 }
 
-function hasSupabaseAuthParams() {
+function getSupabasePkceCode() {
   const search = new URLSearchParams(location.search);
+  return (search.get("code") || "").trim();
+}
+
+function hasSupabaseHashSession() {
   const hash = new URLSearchParams((location.hash || "").replace(/^#/, ""));
-  return Boolean(
-    search.get("code") ||
-    hash.get("access_token") ||
-    hash.get("refresh_token")
-  );
+  return Boolean(hash.get("access_token") || hash.get("refresh_token"));
+}
+
+async function readCurrentSession(errorDetails) {
+  const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
+  if (sessionErr) {
+    console.error("[AuthCallback] getSession error:", sessionErr);
+    showError("Could not read the sign-in session.", sessionErr.message || errorDetails);
+    return { session: null, failed: true };
+  }
+
+  return { session: sessionData?.session || null, failed: false };
 }
 
 function inviteErrorMessage(inviteStatus) {
@@ -85,9 +96,34 @@ async function validateInviteToken(token) {
 (async function () {
   try {
     const token = getInviteToken();
-    const authParamsPresent = hasSupabaseAuthParams();
+    const pkceCode = getSupabasePkceCode();
+    const hashSessionPresent = hasSupabaseHashSession();
+    console.log("[AuthCallback] auth callback params:", {
+      pkceCodePresent: Boolean(pkceCode),
+      hashSessionPresent
+    });
+
+    if (pkceCode && typeof supabase.auth.exchangeCodeForSession === "function") {
+      const { error } = await supabase.auth.exchangeCodeForSession(window.location.href);
+      if (error) {
+        console.error("[AuthCallback] exchangeCodeForSession error:", error);
+        showError("Sign-in callback failed.", error.message || "Supabase could not create a session from this callback.");
+        return;
+      }
+    } else if (hashSessionPresent) {
+      console.log("[AuthCallback] hash session callback detected; skipping PKCE exchange");
+    }
+
+    const { session, failed: sessionReadFailed } = await readCurrentSession("Please try the invite link again.");
+    if (sessionReadFailed) return;
 
     if (!token) {
+      if (session?.user) {
+        console.log("[AuthCallback] auth callback completed without invite token; redirecting home");
+        window.location.replace("./index.html");
+        return;
+      }
+
       showError(
         "Missing invite token.",
         "The callback URL did not include token=... . Ask the studio admin to send a new invite link."
@@ -106,23 +142,7 @@ async function validateInviteToken(token) {
 
     showStatus("Invite is valid.", "Completing sign-in...");
 
-    if (authParamsPresent && typeof supabase.auth.exchangeCodeForSession === "function") {
-      const { error } = await supabase.auth.exchangeCodeForSession(window.location.href);
-      if (error) {
-        console.error("[AuthCallback] exchangeCodeForSession error:", error);
-        showError("Sign-in callback failed.", error.message || "Supabase could not create a session from this callback.");
-        return;
-      }
-    }
-
-    const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
-    if (sessionErr) {
-      console.error("[AuthCallback] getSession error:", sessionErr);
-      showError("Could not read the sign-in session.", sessionErr.message || "Please try the invite link again.");
-      return;
-    }
-
-    if (sessionData?.session?.user) {
+    if (session?.user) {
       const target = `./finish-setup.html?token=${encodeURIComponent(token)}`;
       console.log("[AuthCallback] token valid, session exists, redirect target:", target);
       window.location.replace(target);
