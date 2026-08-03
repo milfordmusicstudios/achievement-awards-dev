@@ -290,6 +290,14 @@ function attachFamilyRowHandlers() {
       const file = input.files?.[0];
       if (!file || !studentId) return;
 
+      console.debug("[Family][Avatar] avatar selected", {
+        studentId,
+        studioId: activeStudioId,
+        fileName: file.name,
+        fileSize: file.size,
+        contentType: file.type
+      });
+
       try {
         const bucketName = "avatars";
         const filePath = `${studentId}/avatar.png`;
@@ -306,14 +314,33 @@ function attachFamilyRowHandlers() {
         const publicUrl = pub?.publicUrl;
         if (!publicUrl) throw new Error("Failed to generate public avatar URL");
 
+        const updatePayload = { avatarUrl: publicUrl };
+        console.debug("[Family][Avatar] update payload created", updatePayload);
+        console.debug("[Family][Avatar] Supabase update started", {
+          studentId,
+          studioId: activeStudioId,
+          payload: updatePayload
+        });
+
         const { error: dbErr } = await supabase
           .from("users")
-          .update({ avatarUrl: publicUrl })
-          .eq("id", studentId);
+          .update(updatePayload)
+          .eq("id", studentId)
+          .eq("studio_id", activeStudioId);
         if (dbErr) throw dbErr;
 
+        const targetProfile = familyProfiles.find(profile => String(profile.id) === String(studentId));
+        if (targetProfile) {
+          targetProfile.avatarUrl = publicUrl;
+        }
+
         const img = input.closest(".family-student-row")?.querySelector("img");
-        if (img) img.src = publicUrl;
+        if (img) img.src = `${publicUrl}?v=${Date.now()}`;
+        console.debug("[Family][Avatar] Supabase response received", {
+          studentId,
+          studioId: activeStudioId,
+          publicUrl
+        });
         showToast("Avatar updated.");
       } catch (err) {
         console.error("[Family] avatar upload failed", err);
