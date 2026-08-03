@@ -1025,13 +1025,6 @@ async function saveRow(row) {
   const user = allUsers.find(entry => String(entry.id) === String(userId));
   if (!user) return;
 
-  console.debug("[ManageUsers][Avatar] Save clicked", {
-    userId,
-    studioId: user.studio_id,
-    avatarDirty: row.dataset.avatarDirty === "true",
-    currentAvatarUrl: user.avatarUrl || null
-  });
-
   const userUpdates = {};
   let roleUpdates = null;
 
@@ -1059,21 +1052,6 @@ async function saveRow(row) {
     userUpdates[field] = newValue;
   });
 
-  if (row.dataset.avatarDirty === "true") {
-    const pendingAvatarUrl = String(row.dataset.pendingAvatarUrl || "").trim();
-    if (pendingAvatarUrl) {
-      userUpdates.avatarUrl = pendingAvatarUrl;
-    }
-  }
-
-  console.debug("[ManageUsers][Avatar] validation started", {
-    userId,
-    studioId: user.studio_id,
-    userUpdates,
-    roleUpdates,
-    avatarDirty: row.dataset.avatarDirty === "true"
-  });
-
   if (!Object.keys(userUpdates).length && !roleUpdates) {
     renderStatus("No changes to save.");
     cancelEditMode(row);
@@ -1083,11 +1061,6 @@ async function saveRow(row) {
   renderStatus("Saving...");
 
   if (Object.keys(userUpdates).length) {
-    console.debug("[ManageUsers][Avatar] form submitted", {
-      userId,
-      studioId: user.studio_id,
-      payload: userUpdates
-    });
     const { error } = await supabase
       .from("users")
       .update(userUpdates)
@@ -1116,8 +1089,6 @@ async function saveRow(row) {
   buildOptionLists(allUsers);
   renderUsers();
   renderStatus("Saved.");
-  row.dataset.avatarDirty = "false";
-  row.dataset.pendingAvatarUrl = "";
 }
 
 async function toggleUserActive(user, button) {
@@ -1173,21 +1144,29 @@ async function uploadAvatarForUser(user, file, imgEl) {
     const publicUrl = data?.publicUrl;
     if (!publicUrl) throw new Error("Unable to get avatar URL");
 
-    const row = imgEl?.closest("tr");
-    if (row) {
-      row.dataset.avatarDirty = "true";
-      row.dataset.pendingAvatarUrl = publicUrl;
-    }
-
-    if (imgEl) imgEl.src = `${publicUrl}?v=${Date.now()}`;
-    console.debug("[ManageUsers][Avatar] update payload created", { avatarUrl: publicUrl });
+    const updatePayload = { avatarUrl: publicUrl };
+    console.debug("[ManageUsers][Avatar] update payload created", updatePayload);
     console.debug("[ManageUsers][Avatar] Supabase update started", {
       userId: user.id,
       studioId: user.studio_id,
-      payload: { avatarUrl: publicUrl }
+      payload: updatePayload
     });
 
-    renderStatus("Avatar selected. Save to apply.");
+    const { error: dbErr } = await supabase
+      .from("users")
+      .update(updatePayload)
+      .eq("id", user.id)
+      .eq("studio_id", user.studio_id);
+    if (dbErr) throw dbErr;
+
+    user.avatarUrl = publicUrl;
+    if (imgEl) imgEl.src = `${publicUrl}?v=${Date.now()}`;
+    console.debug("[ManageUsers][Avatar] Supabase response received", {
+      userId: user.id,
+      studioId: user.studio_id,
+      publicUrl
+    });
+    renderStatus("Avatar updated.");
   } catch (error) {
     console.error("[ManageUsers][Avatar] avatar upload failed", error);
     renderStatus("Avatar upload failed: " + (error.message || "Unknown error"), true);
