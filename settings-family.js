@@ -300,11 +300,7 @@ function attachFamilyRowHandlers() {
 
       try {
         const bucketName = "avatars";
-        const sourceExtension = String(file.name || "").includes(".")
-          ? String(file.name).split(".").pop()
-          : "png";
-        const extension = String(sourceExtension || "png").replace(/[^a-zA-Z0-9_-]/g, "") || "png";
-        const filePath = `${studentId}/avatar-${Date.now()}.${extension}`;
+        const filePath = `${studentId}/avatar.png`;
         const { error: upErr } = await supabase
           .storage
           .from(bucketName)
@@ -326,24 +322,39 @@ function attachFamilyRowHandlers() {
           payload: updatePayload
         });
 
-        const { error: dbErr } = await supabase
+        const { data: updatedRow, error: dbErr } = await supabase
           .from("users")
           .update(updatePayload)
           .eq("id", studentId)
-          .eq("studio_id", activeStudioId);
+          .eq("studio_id", activeStudioId)
+          .select("id, studio_id, avatarUrl")
+          .single();
+
+        console.debug("[Family][Avatar] Supabase update result", {
+          targetUserId: studentId,
+          targetStudioId: activeStudioId,
+          requestedAvatarUrl: publicUrl,
+          returnedRow: updatedRow || null,
+          supabaseError: dbErr || null
+        });
+
         if (dbErr) throw dbErr;
+        if (!updatedRow || String(updatedRow.id) !== String(studentId) || String(updatedRow.studio_id) !== String(activeStudioId)) {
+          throw new Error("Avatar update matched zero rows.");
+        }
 
         const targetProfile = familyProfiles.find(profile => String(profile.id) === String(studentId));
         if (targetProfile) {
-          targetProfile.avatarUrl = publicUrl;
+          targetProfile.avatarUrl = updatedRow.avatarUrl || publicUrl;
         }
 
         const img = input.closest(".family-student-row")?.querySelector("img");
-        if (img) img.src = publicUrl;
+        if (img) img.src = targetProfile?.avatarUrl || updatedRow.avatarUrl || publicUrl;
         console.debug("[Family][Avatar] Supabase response received", {
           studentId,
           studioId: activeStudioId,
-          publicUrl
+          publicUrl,
+          returnedRow: updatedRow
         });
         showToast("Avatar updated.");
       } catch (err) {

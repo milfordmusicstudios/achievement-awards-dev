@@ -1132,11 +1132,7 @@ async function uploadAvatarForUser(user, file, imgEl) {
 
   try {
     const bucket = "avatars";
-    const sourceExtension = String(file.name || "").includes(".")
-      ? String(file.name).split(".").pop()
-      : "png";
-    const extension = String(sourceExtension || "png").replace(/[^a-zA-Z0-9_-]/g, "") || "png";
-    const filePath = `${user.id}/avatar-${Date.now()}.${extension}`;
+    const filePath = `${user.id}/avatar.png`;
 
     const { error: uploadErr } = await supabase
       .storage
@@ -1156,19 +1152,34 @@ async function uploadAvatarForUser(user, file, imgEl) {
       payload: updatePayload
     });
 
-    const { error: dbErr } = await supabase
+    const { data: updatedRow, error: dbErr } = await supabase
       .from("users")
       .update(updatePayload)
       .eq("id", user.id)
-      .eq("studio_id", user.studio_id);
-    if (dbErr) throw dbErr;
+      .eq("studio_id", user.studio_id)
+      .select("id, studio_id, avatarUrl")
+      .single();
 
-    user.avatarUrl = publicUrl;
-    if (imgEl) imgEl.src = publicUrl;
+    console.debug("[ManageUsers][Avatar] Supabase update result", {
+      targetUserId: user.id,
+      targetStudioId: user.studio_id,
+      requestedAvatarUrl: publicUrl,
+      returnedRow: updatedRow || null,
+      supabaseError: dbErr || null
+    });
+
+    if (dbErr) throw dbErr;
+    if (!updatedRow || String(updatedRow.id) !== String(user.id) || String(updatedRow.studio_id) !== String(user.studio_id)) {
+      throw new Error("Avatar update matched zero rows.");
+    }
+
+    user.avatarUrl = updatedRow.avatarUrl || publicUrl;
+    if (imgEl) imgEl.src = user.avatarUrl;
     console.debug("[ManageUsers][Avatar] Supabase response received", {
       userId: user.id,
       studioId: user.studio_id,
-      publicUrl
+      publicUrl,
+      returnedRow: updatedRow
     });
     renderStatus("Avatar updated.");
   } catch (error) {
