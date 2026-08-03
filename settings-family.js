@@ -300,7 +300,11 @@ function attachFamilyRowHandlers() {
 
       try {
         const bucketName = "avatars";
-        const filePath = `${studentId}/avatar.png`;
+        const sourceExtension = String(file.name || "").includes(".")
+          ? String(file.name).split(".").pop()
+          : "png";
+        const extension = String(sourceExtension || "png").replace(/[^a-zA-Z0-9_-]/g, "") || "png";
+        const filePath = `${studentId}/avatar-${Date.now()}.${extension}`;
         const { error: upErr } = await supabase
           .storage
           .from(bucketName)
@@ -335,7 +339,7 @@ function attachFamilyRowHandlers() {
         }
 
         const img = input.closest(".family-student-row")?.querySelector("img");
-        if (img) img.src = `${publicUrl}?v=${Date.now()}`;
+        if (img) img.src = publicUrl;
         console.debug("[Family][Avatar] Supabase response received", {
           studentId,
           studioId: activeStudioId,

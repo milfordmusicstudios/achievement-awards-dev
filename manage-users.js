@@ -1132,7 +1132,11 @@ async function uploadAvatarForUser(user, file, imgEl) {
 
   try {
     const bucket = "avatars";
-    const filePath = `${user.id}/avatar.png`;
+    const sourceExtension = String(file.name || "").includes(".")
+      ? String(file.name).split(".").pop()
+      : "png";
+    const extension = String(sourceExtension || "png").replace(/[^a-zA-Z0-9_-]/g, "") || "png";
+    const filePath = `${user.id}/avatar-${Date.now()}.${extension}`;
 
     const { error: uploadErr } = await supabase
       .storage
@@ -1160,7 +1164,7 @@ async function uploadAvatarForUser(user, file, imgEl) {
     if (dbErr) throw dbErr;
 
     user.avatarUrl = publicUrl;
-    if (imgEl) imgEl.src = `${publicUrl}?v=${Date.now()}`;
+    if (imgEl) imgEl.src = publicUrl;
     console.debug("[ManageUsers][Avatar] Supabase response received", {
       userId: user.id,
       studioId: user.studio_id,
