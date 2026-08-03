@@ -1,12 +1,13 @@
 ﻿const MONTHLY = "monthly";
 const ANNUAL = "annual";
 const FOUNDING_PRICING_CLAIMED = 7;
+const FOUNDING_PRICING_TOTAL = 25;
 
 const PRICING_TIERS = [
-  { key: "solo", name: "Solo", monthly: 20, students: "Up to 50 students", cta: "trial" },
-  { key: "studio", name: "Studio", monthly: 40, students: "Up to 100 students", cta: "trial" },
-  { key: "growth", name: "Growth", monthly: 120, students: "Up to 300 students", cta: "trial" },
-  { key: "organization", name: "Organization", monthly: null, students: "301+ students", cta: "contact" }
+  { key: "solo", name: "Solo", regularMonthly: 29, foundersMonthly: 20, students: "Up to 50 students", cta: "trial" },
+  { key: "studio", name: "Studio", regularMonthly: 59, foundersMonthly: 40, students: "Up to 100 students", cta: "trial" },
+  { key: "growth", name: "Growth", regularMonthly: 149, foundersMonthly: 120, students: "Up to 300 students", cta: "trial" },
+  { key: "organization", name: "Organization", regularMonthly: null, foundersMonthly: null, students: "301+ students", cta: "contact" }
 ];
 
 const FAQ_ITEMS = [
@@ -19,16 +20,12 @@ const FAQ_ITEMS = [
   { id: "faq-automation", q: "Can we automate challenges weekly/monthly?", a: "Yes. Recurring challenge rhythms can be set up around monthly or seasonal goals." }
 ];
 
-function annualTotal(monthlyPrice) {
-  return Math.round(monthlyPrice * 12 * 0.85);
-}
-
-function annualEquivalentMonthly(monthlyPrice) {
-  return Math.round(annualTotal(monthlyPrice) / 12);
-}
-
 function formatCurrency(value) {
   return `$${value}`;
+}
+
+function annualFoundersTotal(monthlyPrice) {
+  return Math.round(monthlyPrice * 12 * 0.85);
 }
 
 function trialRoute() {
@@ -78,27 +75,46 @@ function renderPricingFace(tier, mode, onOrganizationContact) {
   const title = document.createElement("h3");
   title.textContent = tier.name;
 
-  const price = document.createElement("div");
-  price.className = "pricing-price";
+  const featuredBadge = document.createElement("span");
+  featuredBadge.className = "pricing-featured-badge";
+  featuredBadge.textContent = "Most Popular";
 
   const details = document.createElement("p");
   details.className = "pricing-details";
   details.textContent = tier.students;
 
+  const badge = document.createElement("span");
+  badge.className = "pricing-badge";
+  badge.textContent = "Founders Price";
+
+  const regularPrice = document.createElement("p");
+  regularPrice.className = "pricing-regular";
+
+  const price = document.createElement("div");
+  price.className = "pricing-price";
+
+  const savings = document.createElement("p");
+  savings.className = "pricing-savings";
+
   const billingMeta = document.createElement("p");
   billingMeta.className = "pricing-meta";
 
-  if (tier.monthly == null) {
+  if (tier.foundersMonthly == null) {
     price.textContent = "Custom pricing";
     billingMeta.textContent = "Contact us for organization onboarding";
   } else if (mode === MONTHLY) {
-    price.textContent = `${formatCurrency(tier.monthly)}/mo`;
+    regularPrice.innerHTML = `Regular price: <span>${formatCurrency(tier.regularMonthly)}/mo</span>`;
+    price.textContent = `Founders price: ${formatCurrency(tier.foundersMonthly)}/mo`;
+    savings.textContent = `Save ${formatCurrency(tier.regularMonthly - tier.foundersMonthly)}/mo`;
     billingMeta.textContent = "Billed monthly";
   } else {
-    const annual = annualTotal(tier.monthly);
-    const eqMonthly = annualEquivalentMonthly(tier.monthly);
-    price.textContent = `${formatCurrency(annual)}/year (save 15%)`;
-    billingMeta.textContent = `About ${formatCurrency(eqMonthly)}/mo equivalent`;
+    const regularAnnual = tier.regularMonthly * 12;
+    const foundersAnnual = annualFoundersTotal(tier.foundersMonthly);
+    const foundersMonthlyEquivalent = Math.round(foundersAnnual / 12);
+    regularPrice.innerHTML = `Regular price: <span>${formatCurrency(regularAnnual)}/year</span>`;
+    price.textContent = `Founders price: ${formatCurrency(foundersAnnual)}/year`;
+    savings.textContent = `Save ${formatCurrency(regularAnnual - foundersAnnual)}/year`;
+    billingMeta.textContent = `Includes 15% annual discount - about ${formatCurrency(foundersMonthlyEquivalent)}/mo`;
   }
 
   const cta = document.createElement("button");
@@ -117,7 +133,15 @@ function renderPricingFace(tier, mode, onOrganizationContact) {
     cta.addEventListener("click", onOrganizationContact);
   }
 
-  wrap.append(title, price, details, billingMeta, cta);
+  if (tier.foundersMonthly == null) {
+    const organizationSummary = document.createElement("div");
+    organizationSummary.className = "pricing-organization-summary";
+    organizationSummary.append(title, price, details);
+    wrap.append(organizationSummary, billingMeta, cta);
+  } else {
+    if (tier.key === "studio") wrap.append(featuredBadge);
+    wrap.append(title, details, badge, regularPrice, price, savings, billingMeta, cta);
+  }
   return wrap;
 }
 
@@ -126,7 +150,7 @@ function PricingCard({ tier, billing, onOrganizationContact }) {
   card.className = "pricing-card";
   card.dataset.tier = tier.key;
   card.setAttribute("aria-label", `${tier.name} pricing`);
-  const face = document.createElement("section");
+  const face = document.createElement("div");
   face.className = "pricing-face";
   face.appendChild(renderPricingFace(tier, billing, onOrganizationContact));
   card.appendChild(face);
@@ -156,24 +180,204 @@ function FAQAccordion(items) {
   return wrap;
 }
 
-function SimpleModal({ title, bodyHtml }) {
+const ORGANIZATION_TYPES = [
+  "Private Studio",
+  "School",
+  "Homeschool Program",
+  "Church",
+  "Community Music School",
+  "Other"
+];
+
+const STUDENT_COUNTS = ["301-500", "501-1000", "1000+"];
+
+const CURRENT_SOFTWARE_OPTIONS = [
+  "My Music Staff",
+  "Opus1",
+  "Music Teacher's Helper",
+  "Studio Director",
+  "Other",
+  "None"
+];
+
+const ORGANIZATION_GOALS = [
+  "Student Motivation",
+  "Practice Tracking",
+  "Rewards System",
+  "Student Retention",
+  "Parent Engagement",
+  "Studio Growth",
+  "Other"
+];
+
+function optionMarkup(items, placeholder) {
+  return [
+    `<option value="">${placeholder}</option>`,
+    ...items.map((item) => `<option value="${item}">${item}</option>`)
+  ].join("");
+}
+
+function checkboxMarkup(items) {
+  return items.map((item) => `
+    <label class="lead-checkbox">
+      <input type="checkbox" name="goals" value="${item}" />
+      <span>${item}</span>
+    </label>
+  `).join("");
+}
+
+async function submitOrganizationLead(payload) {
+  const response = await fetch("/api/organization-leads", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.ok) {
+    throw new Error(result.error || "Unable to submit organization lead.");
+  }
+  return result;
+}
+
+function OrganizationLeadModal() {
   const overlay = document.createElement("div");
   overlay.className = "simple-modal-overlay";
   overlay.hidden = true;
   overlay.setAttribute("aria-hidden", "true");
 
   const dialog = document.createElement("div");
-  dialog.className = "simple-modal";
+  dialog.className = "simple-modal organization-lead-modal";
   dialog.setAttribute("role", "dialog");
   dialog.setAttribute("aria-modal", "true");
-  dialog.setAttribute("aria-labelledby", "simpleModalTitle");
+  dialog.setAttribute("aria-labelledby", "organizationLeadModalTitle");
   dialog.innerHTML = `
-    <h3 id="simpleModalTitle">${title}</h3>
-    <div class="simple-modal__body">${bodyHtml}</div>
-    <div class="simple-modal__actions">
-      <button type="button" class="info-btn info-btn--ghost" data-close-modal>Close</button>
+    <div class="organization-lead-modal__head">
+      <div>
+        <p class="section-eyebrow">Organization Plan</p>
+        <h3 id="organizationLeadModalTitle">Tell us about your organization</h3>
+      </div>
+      <button type="button" class="organization-lead-modal__close" data-close-modal aria-label="Close">&times;</button>
     </div>
+    <form class="organization-lead-form" novalidate>
+      <div class="lead-form-grid">
+        <label>
+          <span>Studio Name *</span>
+          <input name="studio_name" type="text" autocomplete="organization" required />
+        </label>
+        <label>
+          <span>Contact Name *</span>
+          <input name="contact_name" type="text" autocomplete="name" required />
+        </label>
+        <label>
+          <span>Email Address *</span>
+          <input name="email" type="email" autocomplete="email" required />
+        </label>
+        <label>
+          <span>Phone Number</span>
+          <input name="phone" type="tel" autocomplete="tel" />
+        </label>
+        <label>
+          <span>Organization Type</span>
+          <select name="organization_type">${optionMarkup(ORGANIZATION_TYPES, "Select type")}</select>
+        </label>
+        <label>
+          <span>Student Count</span>
+          <select name="student_count">${optionMarkup(STUDENT_COUNTS, "Select range")}</select>
+        </label>
+        <label>
+          <span>Teacher Count</span>
+          <input name="teacher_count" type="number" min="0" inputmode="numeric" />
+        </label>
+        <label>
+          <span>Current Software</span>
+          <select name="current_software">${optionMarkup(CURRENT_SOFTWARE_OPTIONS, "Select software")}</select>
+        </label>
+      </div>
+      <fieldset class="lead-goals">
+        <legend>Goals</legend>
+        <div class="lead-goals-grid">${checkboxMarkup(ORGANIZATION_GOALS)}</div>
+      </fieldset>
+      <label class="lead-notes">
+        <span>Additional Notes</span>
+        <textarea name="notes" rows="4"></textarea>
+      </label>
+      <p class="lead-form-status" role="status" aria-live="polite"></p>
+      <div class="simple-modal__actions organization-lead-actions">
+        <button type="button" class="info-btn info-btn--primary" data-lead-type="information">Request Information</button>
+        <button type="button" class="info-btn info-btn--primary" data-lead-type="demo">Schedule a Demo</button>
+      </div>
+    </form>
   `;
+
+  const form = dialog.querySelector(".organization-lead-form");
+  const statusEl = dialog.querySelector(".lead-form-status");
+  const actionButtons = [...dialog.querySelectorAll("[data-lead-type]")];
+  let isSubmitting = false;
+  let hasSubmitted = false;
+
+  const setStatus = (message, type = "") => {
+    statusEl.textContent = message;
+    statusEl.dataset.state = type;
+  };
+
+  const setProcessing = (processing, activeType = "") => {
+    isSubmitting = processing;
+    actionButtons.forEach((button) => {
+      button.disabled = processing || hasSubmitted;
+      const original = button.dataset.originalText || button.textContent;
+      button.dataset.originalText = original;
+      button.textContent = processing && button.dataset.leadType === activeType ? "Submitting..." : original;
+    });
+  };
+
+  const collectPayload = (leadType) => {
+    const formData = new FormData(form);
+    return {
+      studio_name: String(formData.get("studio_name") || "").trim(),
+      contact_name: String(formData.get("contact_name") || "").trim(),
+      email: String(formData.get("email") || "").trim(),
+      phone: String(formData.get("phone") || "").trim(),
+      organization_type: String(formData.get("organization_type") || "").trim(),
+      student_count: String(formData.get("student_count") || "").trim(),
+      teacher_count: String(formData.get("teacher_count") || "").trim(),
+      current_software: String(formData.get("current_software") || "").trim(),
+      goals: formData.getAll("goals").map((goal) => String(goal).trim()).filter(Boolean),
+      notes: String(formData.get("notes") || "").trim(),
+      lead_type: leadType
+    };
+  };
+
+  const handleSubmit = async (leadType) => {
+    if (isSubmitting || hasSubmitted) return;
+    if (!form.reportValidity()) {
+      setStatus("Please complete the required fields.", "error");
+      return;
+    }
+
+    setStatus("Submitting your request...", "loading");
+    setProcessing(true, leadType);
+
+    try {
+      const result = await submitOrganizationLead(collectPayload(leadType));
+      hasSubmitted = true;
+      const successMessage = "Thank you for your interest in Music Amplified. We will contact you within 1–2 business days.";
+      setStatus(
+        leadType === "demo" && result.demo_url ? `${successMessage} Redirecting to scheduling...` : successMessage,
+        "success"
+      );
+      setProcessing(false);
+      if (leadType === "demo" && result.demo_url) {
+        setTimeout(() => {
+          window.location.href = result.demo_url;
+        }, 1300);
+      }
+    } catch (error) {
+      console.error("[OrganizationLeadForm] submission failed", error);
+      setStatus(error.message || "Something went wrong. Please try again.", "error");
+      setProcessing(false);
+    }
+  };
 
   const close = () => {
     overlay.hidden = true;
@@ -185,6 +389,13 @@ function SimpleModal({ title, bodyHtml }) {
     if (event.target === overlay) close();
   });
   dialog.querySelector("[data-close-modal]")?.addEventListener("click", close);
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    handleSubmit("information");
+  });
+  actionButtons.forEach((button) => {
+    button.addEventListener("click", () => handleSubmit(button.dataset.leadType));
+  });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !overlay.hidden) close();
   });
@@ -194,9 +405,14 @@ function SimpleModal({ title, bodyHtml }) {
   return {
     element: overlay,
     open: () => {
+      form.reset();
+      hasSubmitted = false;
+      setStatus("");
+      setProcessing(false);
       overlay.hidden = false;
       overlay.setAttribute("aria-hidden", "false");
       document.body.classList.add("modal-open");
+      setTimeout(() => form.elements.studio_name?.focus(), 0);
     },
     close
   };
@@ -207,13 +423,7 @@ function InfoPage(root) {
   const page = document.createElement("div");
   page.className = "info-root";
 
-  const contactModal = SimpleModal({
-    title: "Organization Plan",
-    bodyHtml: `
-      <p>For 301+ students, we provide custom onboarding and pricing support.</p>
-      <p>Email <a href="mailto:hello@example.com?subject=Organization%20Pricing%20Inquiry">hello@example.com</a> and include your studio size and goals.</p>
-    `
-  });
+  const contactModal = OrganizationLeadModal();
 
   page.innerHTML = `
     <header class="info-header">
@@ -429,10 +639,18 @@ function InfoPage(root) {
           <h2>Pricing</h2>
           </div>
           <p class="pricing-intro">All plans include full access to all features.</p>
+          <p class="pricing-beta-note">Founders pricing available during beta.</p>
           <div id="billingToggleMount"></div>
           <div class="pricing-grid" id="pricingCardsMount"></div>
-          <p class="pricing-note">Founding pricing available for the first 25 studios or through Sep 1, 2027 (whichever comes first).</p>
-          <p class="pricing-note">Founding pricing claimed: ${FOUNDING_PRICING_CLAIMED}/25</p>
+          <div class="pricing-urgency">
+            <div>
+              <p class="pricing-note">Founding pricing available for the first ${FOUNDING_PRICING_TOTAL} studios or through Sep 1, 2027, whichever comes first.</p>
+              <p class="pricing-note pricing-note--strong">${FOUNDING_PRICING_CLAIMED} of ${FOUNDING_PRICING_TOTAL} founding spots claimed</p>
+            </div>
+            <div class="pricing-progress" aria-label="${FOUNDING_PRICING_CLAIMED} of ${FOUNDING_PRICING_TOTAL} founding spots claimed">
+              <span style="width: ${(FOUNDING_PRICING_CLAIMED / FOUNDING_PRICING_TOTAL) * 100}%"></span>
+            </div>
+          </div>
         </div>
       </section>
 
