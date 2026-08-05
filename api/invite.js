@@ -33,6 +33,12 @@ function normalizeBaseUrl(value) {
   }
 }
 
+function getBearerToken(req) {
+  const header = req.headers?.authorization || req.headers?.Authorization || "";
+  const match = String(header).match(/^Bearer\s+(.+)$/i);
+  return match ? match[1].trim() : "";
+}
+
 function buildInviteRedirect(token) {
   const baseUrl = normalizeBaseUrl(process.env.APP_BASE_URL) || PROD_APP_BASE_URL;
   const productionBase = normalizeBaseUrl(PROD_APP_BASE_URL);
@@ -66,8 +72,9 @@ module.exports = async (req, res) => {
   const body = parseBody(req);
   const email = body?.email ? String(body.email).trim().toLowerCase() : "";
   const studioId = body?.studio_id ? String(body.studio_id).trim() : "";
-  const roleHint = body?.role_hint ? String(body.role_hint).trim() : "student";
+  const roleHint = body?.role_hint ? String(body.role_hint).trim().toLowerCase() : "student";
   const createdBy = body?.created_by ? String(body.created_by).trim() : "";
+  const authToken = getBearerToken(req);
 
   if (!email) {
     return res.status(400).json({ ok: false, error: "Missing email" });
@@ -78,10 +85,55 @@ module.exports = async (req, res) => {
   if (!createdBy) {
     return res.status(400).json({ ok: false, error: "Missing created_by" });
   }
+  if (!authToken) {
+    return res.status(401).json({ ok: false, error: "Missing authorization" });
+  }
+  if (!["admin", "teacher", "student", "parent"].includes(roleHint)) {
+    return res.status(400).json({ ok: false, error: "Invalid role_hint" });
+  }
 
   const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
     auth: { persistSession: false }
   });
+
+  const { data: authData, error: authErr } = await supabaseAdmin.auth.getUser(authToken);
+  const callerId = authData?.user?.id || "";
+  if (authErr || !callerId) {
+    return res.status(401).json({ ok: false, error: "Invalid authorization" });
+  }
+  if (String(createdBy) !== String(callerId)) {
+    return res.status(403).json({ ok: false, error: "created_by does not match authenticated user" });
+  }
+
+  const [{ data: studio, error: studioErr }, { data: membership, error: membershipErr }] = await Promise.all([
+    supabaseAdmin
+      .from("studios")
+      .select("id, account_holder_user_id")
+      .eq("id", studioId)
+      .maybeSingle(),
+    supabaseAdmin
+      .from("studio_members")
+      .select("roles")
+      .eq("studio_id", studioId)
+      .eq("user_id", callerId)
+      .maybeSingle()
+  ]);
+
+  if (studioErr || membershipErr) {
+    return res.status(500).json({ ok: false, error: "Authorization lookup failed" });
+  }
+  if (!studio?.id) {
+    return res.status(404).json({ ok: false, error: "Studio not found" });
+  }
+
+  const roles = Array.isArray(membership?.roles)
+    ? membership.roles.map((role) => String(role || "").toLowerCase())
+    : [];
+  const isAccountHolder = String(studio.account_holder_user_id || "") === String(callerId);
+  const canInvite = isAccountHolder || roles.includes("owner") || roles.includes("admin");
+  if (!canInvite) {
+    return res.status(403).json({ ok: false, error: "Not authorized to invite for this studio" });
+  }
 
   const token = crypto.randomBytes(32).toString("hex");
   const now = new Date();

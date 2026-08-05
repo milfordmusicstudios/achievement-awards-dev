@@ -160,9 +160,22 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (errorEl) errorEl.style.display = "none";
       if (successEl) successEl.style.display = "none";
 
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token || "";
+      if (!accessToken) {
+        if (errorEl) {
+          errorEl.textContent = "Please sign in again before sending an invite.";
+          errorEl.style.display = "block";
+        }
+        return;
+      }
+
       const response = await fetch("/api/invite", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${accessToken}`
+        },
         body: JSON.stringify({
           email,
           studio_id: studioId,
