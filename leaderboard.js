@@ -43,15 +43,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     renderLevelBars(container, levelsDesc);
 
-    const studentIds = await fetchStudentIds(activeStudioId);
-    if (!studentIds.length) {
-      if (container) container.innerHTML = "<p class=\"empty-state\">No students found for this studio.</p>";
-      if (countEl) countEl.textContent = "Showing 0 students";
-      if (popup) popup.style.display = "none";
-      return;
-    }
-
-    const students = await fetchStudentsByIds(studentIds, activeStudioId);
+    const students = await fetchLeaderboardStudents(activeStudioId);
     if (!students.length) {
       if (container) container.innerHTML = "<p class=\"empty-state\">No students found for this studio.</p>";
       if (countEl) countEl.textContent = "Showing 0 students";
@@ -65,11 +57,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     const placements = buildPlacements(students, totals, levels, activeStudentId);
     if (countEl) countEl.textContent = `Showing ${placements.length} students`;
     console.log("[Leaderboard] render summary", {
-      totalStudentsFetched: studentIds.length,
-      inactiveStudentsRemoved: Math.max(0, studentIds.length - students.length),
+      totalStudentsFetched: students.length,
+      inactiveStudentsRemoved: 0,
       finalLeaderboardStudentsRendered: placements.length,
-      activeStatusFieldsUsed: ["users.active = true", "users.deactivated_at is null", "users.showonleaderboard is not false"],
-      dataSource: "studio_members user ids + users table filtered query"
+      activeStatusFieldsUsed: ["get_leaderboard_students RPC", "users.active = true", "users.deactivated_at is null", "users.showonleaderboard is not false"],
+      dataSource: "get_leaderboard_students RPC (with users-table fallback)"
     });
     renderAvatars(placements);
     initLeaderboardZoom(placements);
@@ -142,6 +134,46 @@ function renderLevelBars(container, levelsDesc) {
     row.appendChild(bar);
     container.appendChild(row);
   });
+}
+
+async function fetchLeaderboardStudents(studioId) {
+  try {
+    const { data, error } = await supabase.rpc("get_leaderboard_students", {
+      p_studio_id: studioId
+    });
+    if (error) throw error;
+
+    const rpcStudents = (data || []).map(normalizeLeaderboardStudentRow);
+    if (Array.isArray(rpcStudents) && rpcStudents.length) {
+      console.log("[Leaderboard] loaded leaderboard students via RPC", {
+        totalStudentsFetched: rpcStudents.length,
+        dataSource: "get_leaderboard_students"
+      });
+      return rpcStudents;
+    }
+  } catch (err) {
+    console.warn("[Leaderboard] RPC student fetch failed, falling back to direct users query", err);
+  }
+
+  const studentIds = await fetchStudentIds(studioId);
+  if (!studentIds.length) return [];
+  return fetchStudentsByIds(studentIds, studioId);
+}
+
+function normalizeLeaderboardStudentRow(row) {
+  const roles = Array.isArray(row?.roles) ? row.roles : (row?.roles ? [row.roles] : ["student"]);
+  return {
+    id: row?.id || "",
+    firstName: row?.firstName || "",
+    lastName: row?.lastName || "",
+    avatarUrl: row?.avatarUrl || "",
+    roles,
+    points: Number(row?.points ?? 0),
+    level: Number(row?.level ?? 1),
+    active: true,
+    deactivated_at: null,
+    showonleaderboard: true
+  };
 }
 
 async function fetchStudentIds(studioId) {
