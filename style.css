@@ -844,6 +844,66 @@ body.is-admin .admin-only {
   font-weight: 700;
 }
 
+.duplicate-log-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(10, 24, 38, 0.46);
+}
+
+.duplicate-log-modal {
+  width: min(560px, 100%);
+  max-height: min(680px, calc(100vh - 36px));
+  overflow: auto;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 18px 50px rgba(10, 24, 38, 0.24);
+  padding: 20px;
+  color: #203044;
+}
+
+.duplicate-log-modal h3 {
+  margin: 0 0 8px;
+  color: #0b4f8a;
+  font-size: 20px;
+}
+
+.duplicate-log-modal p {
+  margin: 0 0 14px;
+  line-height: 1.4;
+}
+
+.duplicate-log-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid rgba(11, 79, 138, 0.18);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.duplicate-log-list li {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(11, 79, 138, 0.12);
+  font-weight: 700;
+}
+
+.duplicate-log-list li:last-child {
+  border-bottom: 0;
+}
+
+.duplicate-log-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
 .role-badge-wrap {
   margin-left: auto;
   display: flex;

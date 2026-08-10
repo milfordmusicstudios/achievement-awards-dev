@@ -2006,6 +2006,134 @@ function buildCategoryHeader(category, label) {
   `;
 }
 
+function getDuplicateLogKey(row) {
+  const userId = String(row?.userId || "").trim();
+  const date = String(row?.date || "").slice(0, 10);
+  const category = String(row?.category || "").trim().toLowerCase();
+  const points = Number(row?.points);
+  return userId && date && category && Number.isFinite(points) ? `${userId}|${date}|${category}|${points}` : "";
+}
+
+function formatHomeDuplicateLogLine(row) {
+  const date = String(row?.date || "").slice(0, 10) || "No date";
+  const categoryLabel = String(row?.category || "").trim() || "Log";
+  const pointsLabel = Number.isFinite(Number(row?.points)) ? `${Number(row.points)} pts` : "points not set";
+  return `${date} - ${categoryLabel} (${pointsLabel})`;
+}
+
+function askHomeDuplicateLogChoice(duplicateRows) {
+  return new Promise((resolve) => {
+    const rows = Array.isArray(duplicateRows) ? duplicateRows : [];
+    if (!rows.length) {
+      resolve("submit-all");
+      return;
+    }
+
+    const overlay = document.createElement("div");
+    overlay.className = "duplicate-log-modal-overlay";
+    overlay.setAttribute("role", "presentation");
+
+    const modal = document.createElement("div");
+    modal.className = "duplicate-log-modal";
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
+    modal.setAttribute("aria-labelledby", "homeDuplicateLogModalTitle");
+
+    const title = document.createElement("h3");
+    title.id = "homeDuplicateLogModalTitle";
+    title.textContent = "Duplicate logs found";
+
+    const intro = document.createElement("p");
+    intro.textContent = "These selected logs match an existing non-rejected log for the same date, category, and points.";
+
+    const list = document.createElement("ul");
+    list.className = "duplicate-log-list";
+    rows.slice(0, 30).forEach((row) => {
+      const item = document.createElement("li");
+      item.textContent = formatHomeDuplicateLogLine(row);
+      list.appendChild(item);
+    });
+    if (rows.length > 30) {
+      const extra = document.createElement("li");
+      extra.textContent = `+${rows.length - 30} more`;
+      list.appendChild(extra);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "duplicate-log-actions";
+
+    const onKeydown = (event) => {
+      if (event.key === "Escape") finish("cancel");
+    };
+    const finish = (choice) => {
+      document.removeEventListener("keydown", onKeydown);
+      overlay.remove();
+      resolve(choice);
+    };
+
+    const submitAllBtn = document.createElement("button");
+    submitAllBtn.type = "button";
+    submitAllBtn.className = "blue-button";
+    submitAllBtn.textContent = "Add duplicates anyway";
+    submitAllBtn.addEventListener("click", () => finish("submit-all"));
+
+    const skipDuplicatesBtn = document.createElement("button");
+    skipDuplicatesBtn.type = "button";
+    skipDuplicatesBtn.className = "pill-btn";
+    skipDuplicatesBtn.textContent = "Skip duplicate logs";
+    skipDuplicatesBtn.addEventListener("click", () => finish("skip-duplicates"));
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.className = "link-btn";
+    cancelBtn.textContent = "Go back and edit dates";
+    cancelBtn.addEventListener("click", () => finish("cancel"));
+
+    actions.append(submitAllBtn, skipDuplicatesBtn, cancelBtn);
+    modal.append(title, intro, list, actions);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    document.addEventListener("keydown", onKeydown);
+    cancelBtn.focus();
+  });
+}
+
+async function findDuplicateHomeLogRows({ rows, studioId }) {
+  const candidateRows = Array.isArray(rows) ? rows : [];
+  const studioIdNormalized = String(studioId || "").trim();
+  const userIds = Array.from(new Set(candidateRows.map((row) => String(row?.userId || "").trim()).filter(Boolean)));
+  const dates = Array.from(new Set(candidateRows.map((row) => String(row?.date || "").slice(0, 10)).filter(Boolean)));
+  if (!studioIdNormalized || !userIds.length || !dates.length) return [];
+
+  const { data, error } = await supabase
+    .from("logs")
+    .select("id,userId,date,category,points,status")
+    .eq("studio_id", studioIdNormalized)
+    .in("userId", userIds)
+    .in("date", dates)
+    .or("status.is.null,status.neq.rejected");
+  if (error) throw error;
+
+  const existingKeys = new Set();
+  for (const row of Array.isArray(data) ? data : []) {
+    const userId = String(row?.userId || "").trim();
+    const date = String(row?.date || "").slice(0, 10);
+    const category = String(row?.category || "").trim().toLowerCase();
+    const points = Number(row?.points);
+    if (!userId || !date || !category || !Number.isFinite(points)) continue;
+    existingKeys.add(`${userId}|${date}|${category}|${points}`);
+  }
+
+  return candidateRows.filter((row) => {
+    const userId = String(row?.userId || "").trim();
+    const date = String(row?.date || "").slice(0, 10);
+    const category = String(row?.category || "").trim().toLowerCase();
+    const points = Number(row?.points);
+    if (!userId || !date || !category || !Number.isFinite(points)) return false;
+    return existingKeys.has(`${userId}|${date}|${category}|${points}`);
+  });
+}
+
 async function insertLogs(rows, { approved }) {
   const ctx = await getViewerContext();
   const identityContext = resolveHomeIdentityContext(ctx);
@@ -2024,11 +2152,34 @@ async function insertLogs(rows, { approved }) {
   }
 
   const studioId = identityContext.studioId || localStorage.getItem("activeStudioId") || null;
-  const payload = rows.map(row => ({
+  let payload = rows.map(row => ({
     ...row,
     created_by: row.created_by || authUserId,
     ...(studioId ? { studio_id: studioId } : {})
   }));
+
+  try {
+    const duplicateRows = await findDuplicateHomeLogRows({ rows: payload, studioId });
+    if (duplicateRows.length) {
+      const duplicateChoice = await askHomeDuplicateLogChoice(duplicateRows);
+      if (duplicateChoice === "cancel") {
+        showToast("Submission paused. Deselect the duplicate dates, or submit again and choose Add duplicates anyway.");
+        return false;
+      }
+      if (duplicateChoice === "skip-duplicates") {
+        const duplicateKeys = new Set(duplicateRows.map(getDuplicateLogKey).filter(Boolean));
+        payload = payload.filter((row) => !duplicateKeys.has(getDuplicateLogKey(row)));
+        if (!payload.length) {
+          showToast("All selected logs were duplicates. No logs were added.");
+          return false;
+        }
+      }
+    }
+  } catch (duplicateCheckError) {
+    console.error("[Home] failed duplicate check", duplicateCheckError);
+    showToast("Unable to verify duplicates. No logs were submitted.");
+    return false;
+  }
 
   const normalizeDate = (value) => {
     if (!value) return null;
@@ -2938,6 +3089,103 @@ async function initStaffQuickLog({ authUserId, studioId, roles }) {
     return last && first ? `${last}, ${first}` : (last || first || student?.email || 'Student');
   };
 
+  const getStudentNameById = (studentId) => {
+    const normalizedId = String(studentId || "").trim();
+    const student = staffStudentRows.find((row) => String(row?.id || "").trim() === normalizedId);
+    return student ? getStudentName(student) : `Student ${normalizedId || "unknown"}`;
+  };
+
+  const getDuplicateRowKey = (row) => {
+    const userId = String(row?.userId || "").trim();
+    const date = String(row?.date || "").slice(0, 10);
+    return userId && date ? `${userId}|${date}` : "";
+  };
+
+  const formatDuplicateLogLine = (row) => {
+    const date = String(row?.date || "").slice(0, 10) || "No date";
+    const categoryLabel = String(row?.category || "").trim() || "Log";
+    const pointsLabel = Number.isFinite(Number(row?.points)) ? `${Number(row.points)} pts` : "points not set";
+    return `${getStudentNameById(row?.userId)} - ${date} - ${categoryLabel} (${pointsLabel})`;
+  };
+
+  const askDuplicateLogChoice = (duplicateRows) => new Promise((resolve) => {
+    const rows = Array.isArray(duplicateRows) ? duplicateRows : [];
+    if (!rows.length) {
+      resolve("submit-all");
+      return;
+    }
+
+    const overlay = document.createElement("div");
+    overlay.className = "duplicate-log-modal-overlay";
+    overlay.setAttribute("role", "presentation");
+
+    const modal = document.createElement("div");
+    modal.className = "duplicate-log-modal";
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
+    modal.setAttribute("aria-labelledby", "duplicateLogModalTitle");
+
+    const title = document.createElement("h3");
+    title.id = "duplicateLogModalTitle";
+    title.textContent = "Duplicate logs found";
+
+    const intro = document.createElement("p");
+    intro.textContent = "These selected logs match an existing non-rejected log for the same student and date.";
+
+    const list = document.createElement("ul");
+    list.className = "duplicate-log-list";
+    rows.slice(0, 30).forEach((row) => {
+      const item = document.createElement("li");
+      item.textContent = formatDuplicateLogLine(row);
+      list.appendChild(item);
+    });
+    if (rows.length > 30) {
+      const extra = document.createElement("li");
+      extra.textContent = `+${rows.length - 30} more`;
+      list.appendChild(extra);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "duplicate-log-actions";
+
+    const finish = (choice) => {
+      document.removeEventListener("keydown", onKeydown);
+      overlay.remove();
+      resolve(choice);
+    };
+
+    const submitAllBtn = document.createElement("button");
+    submitAllBtn.type = "button";
+    submitAllBtn.className = "blue-button";
+    submitAllBtn.textContent = "Add duplicates anyway";
+    submitAllBtn.addEventListener("click", () => finish("submit-all"));
+
+    const skipDuplicatesBtn = document.createElement("button");
+    skipDuplicatesBtn.type = "button";
+    skipDuplicatesBtn.className = "pill-btn";
+    skipDuplicatesBtn.textContent = "Skip duplicate logs";
+    skipDuplicatesBtn.addEventListener("click", () => finish("skip-duplicates"));
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.className = "link-btn";
+    cancelBtn.textContent = "Go back and edit dates";
+    cancelBtn.addEventListener("click", () => finish("cancel"));
+
+    const onKeydown = (event) => {
+      if (event.key === "Escape") {
+        finish("cancel");
+      }
+    };
+    document.addEventListener("keydown", onKeydown);
+
+    actions.append(submitAllBtn, skipDuplicatesBtn, cancelBtn);
+    modal.append(title, intro, list, actions);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    cancelBtn.focus();
+  });
+
   const syncStudentSelect = () => {
     if (!studentSelect) return;
     Array.from(studentSelect.options).forEach((option) => {
@@ -3367,53 +3615,25 @@ async function initStaffQuickLog({ authUserId, studioId, roles }) {
 
     let rowsToInsert = baseRows;
     let duplicateRows = [];
+    let skippedDuplicateCount = 0;
     const isPracticeCategory = String(category || "").trim().toLowerCase() === "practice";
     if (isPracticeCategory) {
       duplicateRows = [];
-      rowsToInsert = [];
       for (const row of baseRows) {
         const userId = String(row.userId || "").trim();
         const date = String(row.date || "").slice(0, 10);
         const existingDates = practiceDatesByStudentId.get(userId) || new Set();
         if (date && existingDates.has(date)) {
           duplicateRows.push(row);
-          continue;
         }
-        rowsToInsert.push(row);
-      }
-      if (!rowsToInsert.length) {
-        const allDupMsg = "Practice logs already exist for all selected dates. No new logs were added.";
-        if (msgEl) {
-          msgEl.textContent = allDupMsg;
-          msgEl.style.display = 'block';
-          msgEl.style.color = '#c62828';
-        }
-        return;
       }
     } else {
       try {
-        const duplicateNonPracticeRows = await findExistingNonPracticeDuplicates({
+        duplicateRows = await findExistingNonPracticeDuplicates({
           rows: baseRows,
           category,
           points
         });
-        if (duplicateNonPracticeRows.length) {
-          const duplicateDates = Array.from(new Set(
-            duplicateNonPracticeRows.map((row) => String(row?.date || "").slice(0, 10)).filter(Boolean)
-          ));
-          const datePreview = duplicateDates.slice(0, 3).join(", ");
-          const extraDateCount = Math.max(duplicateDates.length - 3, 0);
-          const duplicateMsg = `It looks like this log was already submitted for ${duplicateNonPracticeRows.length} entr${duplicateNonPracticeRows.length === 1 ? "y" : "ies"} (same category, points, and date).${datePreview ? ` Dates: ${datePreview}${extraDateCount ? ` (+${extraDateCount} more)` : ""}.` : ""} Are you sure you want to submit another one?`;
-          const proceed = window.confirm(duplicateMsg);
-          if (!proceed) {
-            if (msgEl) {
-              msgEl.textContent = "Submission canceled. Duplicate logs were detected.";
-              msgEl.style.display = "block";
-              msgEl.style.color = "#c62828";
-            }
-            return;
-          }
-        }
       } catch (duplicateCheckError) {
         console.error("[QuickLog] failed duplicate check", duplicateCheckError);
         if (msgEl) {
@@ -3422,6 +3642,31 @@ async function initStaffQuickLog({ authUserId, studioId, roles }) {
           msgEl.style.color = "#c62828";
         }
         return;
+      }
+    }
+
+    if (duplicateRows.length) {
+      const duplicateChoice = await askDuplicateLogChoice(duplicateRows);
+      if (duplicateChoice === "cancel") {
+        if (msgEl) {
+          msgEl.textContent = "Submission paused. Deselect the duplicate dates, or submit again and choose Add duplicates anyway.";
+          msgEl.style.display = "block";
+          msgEl.style.color = "#c62828";
+        }
+        return;
+      }
+      if (duplicateChoice === "skip-duplicates") {
+        const duplicateKeys = new Set(duplicateRows.map(getDuplicateRowKey).filter(Boolean));
+        rowsToInsert = baseRows.filter((row) => !duplicateKeys.has(getDuplicateRowKey(row)));
+        skippedDuplicateCount = baseRows.length - rowsToInsert.length;
+        if (!rowsToInsert.length) {
+          if (msgEl) {
+            msgEl.textContent = "All selected logs were duplicates. No logs were added.";
+            msgEl.style.display = "block";
+            msgEl.style.color = "#c62828";
+          }
+          return;
+        }
       }
     }
 
@@ -3462,8 +3707,8 @@ async function initStaffQuickLog({ authUserId, studioId, roles }) {
     }
 
     if (msgEl) {
-      if (duplicateRows.length) {
-        msgEl.textContent = "Some selected practice dates already had logs and were skipped. The remaining new dates were saved.";
+      if (skippedDuplicateCount) {
+        msgEl.textContent = `Logged ${rowsToInsert.length} entries and skipped ${skippedDuplicateCount} duplicate ${skippedDuplicateCount === 1 ? "log" : "logs"}.`;
       } else {
         msgEl.textContent = `Logged ${rowsToInsert.length} entries`;
       }

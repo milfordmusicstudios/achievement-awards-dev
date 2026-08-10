@@ -44,6 +44,37 @@ document.addEventListener("DOMContentLoaded", async () => {
     return last || first || fallback;
   };
 
+  async function findDuplicateLog(payload) {
+    const userId = String(payload?.userId || "").trim();
+    const studioId = String(payload?.studio_id || "").trim();
+    const date = String(payload?.date || "").slice(0, 10);
+    const category = String(payload?.category || "").trim().toLowerCase();
+    const points = Number(payload?.points);
+    if (!userId || !studioId || !date || !category || !Number.isFinite(points)) return null;
+
+    const { data, error } = await supabase
+      .from("logs")
+      .select("id,userId,date,category,points,status")
+      .eq("studio_id", studioId)
+      .eq("userId", userId)
+      .eq("date", date)
+      .or("status.is.null,status.neq.rejected");
+    if (error) throw error;
+
+    return (data || []).find((row) =>
+      String(row?.category || "").trim().toLowerCase() === category &&
+      Number(row?.points) === points
+    ) || null;
+  }
+
+  async function confirmDuplicateLog(payload) {
+    const duplicate = await findDuplicateLog(payload);
+    if (!duplicate) return true;
+    return window.confirm(
+      `Duplicate log found:\n\n${payload.date} - ${payload.category} (${payload.points} pts)\n\nAre you sure you want to add a double? Choose Cancel to go back and change the date.`
+    );
+  }
+
   const setPromptActive = (key) => {
     selectedPromptKey = String(key || "");
     promptGrid?.querySelectorAll("[data-log-prompt]").forEach(button => {
@@ -256,7 +287,7 @@ categorySelect.addEventListener("change", () => {
         status = "approved";
       }
 
-      const { error: logErr } = await supabase.from("logs").insert([{
+      const payload = {
         userId: targetUser,
         studio_id: activeStudioId,
         category,
@@ -264,7 +295,21 @@ categorySelect.addEventListener("change", () => {
         date,
         points,
         status
-      }]);
+      };
+
+      try {
+        const proceed = await confirmDuplicateLog(payload);
+        if (!proceed) {
+          alert("Submission paused. Change the date, or submit again to add the duplicate.");
+          return;
+        }
+      } catch (duplicateCheckError) {
+        console.error("Failed to verify duplicate logs:", duplicateCheckError);
+        alert("Unable to verify duplicates. No log was submitted.");
+        return;
+      }
+
+      const { error: logErr } = await supabase.from("logs").insert([payload]);
 
       if (logErr) {
         console.error("Failed to save log:", logErr.message);

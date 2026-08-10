@@ -18,6 +18,84 @@ function localToday() {
   return `${y}-${m}-${d}`;
 }
 
+async function findDuplicateChallengeLog({ studioId, studentId, date, points }) {
+  const targetStudioId = String(studioId || "").trim();
+  const targetStudentId = String(studentId || "").trim();
+  const targetDate = String(date || "").slice(0, 10);
+  const targetPoints = Number(points);
+  if (!targetStudioId || !targetStudentId || !targetDate || !Number.isFinite(targetPoints)) return null;
+
+  const { data, error } = await supabase
+    .from("logs")
+    .select("id,userId,date,category,points,status")
+    .eq("studio_id", targetStudioId)
+    .eq("userId", targetStudentId)
+    .eq("date", targetDate)
+    .or("status.is.null,status.neq.rejected");
+  if (error) throw error;
+
+  return (data || []).find((row) =>
+    String(row?.category || "").trim().toLowerCase() === "teacher challenge" &&
+    Number(row?.points) === targetPoints
+  ) || null;
+}
+
+async function confirmDuplicateChallengeLog({ studioId, studentId, date, points }) {
+  const duplicate = await findDuplicateChallengeLog({ studioId, studentId, date, points });
+  if (!duplicate) return true;
+  return window.confirm(
+    `Duplicate log found:\n\n${date} - Teacher Challenge (${points} pts)\n\nAre you sure you want to add a double? Choose Cancel to go back and change the date.`
+  );
+}
+
+async function getWeeklyChallengeLogCandidate({ studioId, studentId, challenge, quantity }) {
+  const pointType = String(challenge?.point_type || "").toLowerCase() || (challenge?.points != null ? "fixed" : "");
+  if (pointType === "memorization" || pointType === "precision") {
+    const { data, error } = await supabase
+      .from("users")
+      .select("instrument")
+      .eq("studio_id", studioId)
+      .eq("id", studentId)
+      .maybeSingle();
+    if (error) throw error;
+    const instrumentText = Array.isArray(data?.instrument)
+      ? data.instrument.join(" ").toLowerCase()
+      : String(data?.instrument || "").toLowerCase();
+    const multiplier = /(voice|vocal|singer|singing)/.test(instrumentText) ? 1 : 2;
+    return { category: "proficiency", points: Number(quantity || 0) * multiplier };
+  }
+  if (pointType === "performance") return { category: "performance", points: 100 };
+  if (pointType === "practice") return { category: "practice", points: 5 };
+  return { category: "weekly challenge", points: Number(challenge?.points || 0) };
+}
+
+async function confirmDuplicateWeeklyChallengeLog({ studioId, studentId, challenge, quantity }) {
+  const candidate = await getWeeklyChallengeLogCandidate({ studioId, studentId, challenge, quantity });
+  const date = localToday();
+  const targetCategory = String(candidate?.category || "").trim().toLowerCase();
+  const targetPoints = Number(candidate?.points);
+  if (!targetCategory || !Number.isFinite(targetPoints)) return true;
+
+  const { data, error } = await supabase
+    .from("logs")
+    .select("id,userId,date,category,points,status")
+    .eq("studio_id", studioId)
+    .eq("userId", studentId)
+    .eq("date", date)
+    .or("status.is.null,status.neq.rejected");
+  if (error) throw error;
+
+  const duplicate = (data || []).find((row) =>
+    String(row?.category || "").trim().toLowerCase() === targetCategory &&
+    Number(row?.points) === targetPoints
+  );
+  if (!duplicate) return true;
+
+  return window.confirm(
+    `Duplicate log found:\n\n${date} - ${candidate.category} (${targetPoints} pts)\n\nAre you sure you want to add a double? Choose Cancel to go back before submitting.`
+  );
+}
+
 function toDateText(value) {
   return String(value || "");
 }
@@ -748,6 +826,16 @@ export async function initStudentChallengesUI({ studioId, studentId, roles, show
       setCompletionError("");
 
       try {
+        const proceed = await confirmDuplicateWeeklyChallengeLog({
+          studioId: studio,
+          studentId: targetStudentId,
+          challenge: weeklyChallenge,
+          quantity: Number.isFinite(quantity) ? quantity : null
+        });
+        if (!proceed) {
+          setCompletionError("Submission paused. Go back before submitting, or submit again to add the duplicate.");
+          return;
+        }
         await completeWeeklyChallenge({
           studioId: studio,
           studentId: targetStudentId,
@@ -800,6 +888,17 @@ export async function initStudentChallengesUI({ studioId, studentId, roles, show
     setCompletionError("");
 
     try {
+      const challengePoints = Number(row?.teacher_challenges?.points || 0);
+      const proceed = await confirmDuplicateChallengeLog({
+        studioId,
+        studentId: targetStudentId,
+        date: selectedDate,
+        points: challengePoints
+      });
+      if (!proceed) {
+        setCompletionError("Submission paused. Change the date, or submit again to add the duplicate.");
+        return;
+      }
       const logId = await completeChallengeAndCreateLog(assignmentId, targetStudentId, selectedDate);
       const logNote = `Teacher Challenge: ${challengeTitle} - ${note}`;
       const { error: updateErr } = await supabase

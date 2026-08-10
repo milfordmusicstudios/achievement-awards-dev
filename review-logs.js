@@ -3024,6 +3024,135 @@ function getQuickAddStudentName(student) {
   return formatLastFirstName(student, student?.email || "Student");
 }
 
+function getQuickAddStudentNameById(studentId) {
+  const normalizedId = String(studentId || "").trim();
+  const student = quickAddRoster.find((row) => String(row?.id || "").trim() === normalizedId);
+  return student ? getQuickAddStudentName(student) : `Student ${normalizedId || "unknown"}`;
+}
+
+function getQuickAddDuplicateRowKey(row) {
+  const userId = String(row?.userId || "").trim();
+  const date = String(row?.date || "").slice(0, 10);
+  return userId && date ? `${userId}|${date}` : "";
+}
+
+function formatQuickAddDuplicateLogLine(row) {
+  const date = String(row?.date || "").slice(0, 10) || "No date";
+  const categoryLabel = String(row?.category || "").trim() || "Log";
+  const pointsLabel = Number.isFinite(Number(row?.points)) ? `${Number(row.points)} pts` : "points not set";
+  return `${getQuickAddStudentNameById(row?.userId)} - ${date} - ${categoryLabel} (${pointsLabel})`;
+}
+
+function askQuickAddDuplicateLogChoice(duplicateRows) {
+  return new Promise((resolve) => {
+    const rows = Array.isArray(duplicateRows) ? duplicateRows : [];
+    if (!rows.length) {
+      resolve("submit-all");
+      return;
+    }
+
+    const overlay = document.createElement("div");
+    overlay.className = "duplicate-log-modal-overlay";
+    overlay.setAttribute("role", "presentation");
+
+    const modal = document.createElement("div");
+    modal.className = "duplicate-log-modal";
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
+    modal.setAttribute("aria-labelledby", "quickAddDuplicateLogModalTitle");
+
+    const title = document.createElement("h3");
+    title.id = "quickAddDuplicateLogModalTitle";
+    title.textContent = "Duplicate logs found";
+
+    const intro = document.createElement("p");
+    intro.textContent = "These selected logs match an existing non-rejected log for the same student and date.";
+
+    const list = document.createElement("ul");
+    list.className = "duplicate-log-list";
+    rows.slice(0, 30).forEach((row) => {
+      const item = document.createElement("li");
+      item.textContent = formatQuickAddDuplicateLogLine(row);
+      list.appendChild(item);
+    });
+    if (rows.length > 30) {
+      const extra = document.createElement("li");
+      extra.textContent = `+${rows.length - 30} more`;
+      list.appendChild(extra);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "duplicate-log-actions";
+
+    const onKeydown = (event) => {
+      if (event.key === "Escape") finish("cancel");
+    };
+    const finish = (choice) => {
+      document.removeEventListener("keydown", onKeydown);
+      overlay.remove();
+      resolve(choice);
+    };
+
+    const submitAllBtn = document.createElement("button");
+    submitAllBtn.type = "button";
+    submitAllBtn.className = "blue-button";
+    submitAllBtn.textContent = "Add duplicates anyway";
+    submitAllBtn.addEventListener("click", () => finish("submit-all"));
+
+    const skipDuplicatesBtn = document.createElement("button");
+    skipDuplicatesBtn.type = "button";
+    skipDuplicatesBtn.className = "pill-btn";
+    skipDuplicatesBtn.textContent = "Skip duplicate logs";
+    skipDuplicatesBtn.addEventListener("click", () => finish("skip-duplicates"));
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.className = "link-btn";
+    cancelBtn.textContent = "Go back and edit dates";
+    cancelBtn.addEventListener("click", () => finish("cancel"));
+
+    actions.append(submitAllBtn, skipDuplicatesBtn, cancelBtn);
+    modal.append(title, intro, list, actions);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    document.addEventListener("keydown", onKeydown);
+    cancelBtn.focus();
+  });
+}
+
+async function findQuickAddDuplicateLogs({ rows, studioId, category, points }) {
+  const studioIdNormalized = String(studioId || "").trim();
+  const candidateRows = Array.isArray(rows) ? rows : [];
+  const userIds = Array.from(new Set(candidateRows.map((row) => String(row?.userId || "").trim()).filter(Boolean)));
+  const dates = Array.from(new Set(candidateRows.map((row) => String(row?.date || "").slice(0, 10)).filter(Boolean)));
+  if (!studioIdNormalized || !userIds.length || !dates.length) return [];
+
+  const normalizedCategory = String(category || "").trim().toLowerCase();
+  const normalizedPoints = Number(points);
+  const { data, error } = await supabase
+    .from("logs")
+    .select("id,userId,date,category,points,status")
+    .eq("studio_id", studioIdNormalized)
+    .in("userId", userIds)
+    .in("date", dates)
+    .or("status.is.null,status.neq.rejected");
+  if (error) throw error;
+
+  const existingKeys = new Set();
+  for (const row of Array.isArray(data) ? data : []) {
+    const rowCategory = String(row?.category || "").trim().toLowerCase();
+    const rowPoints = Number(row?.points);
+    const rowUserId = String(row?.userId || "").trim();
+    const rowDate = String(row?.date || "").slice(0, 10);
+    if (!rowUserId || !rowDate) continue;
+    if (rowCategory !== normalizedCategory) continue;
+    if (!Number.isFinite(rowPoints) || rowPoints !== normalizedPoints) continue;
+    existingKeys.add(`${rowUserId}|${rowDate}`);
+  }
+
+  return candidateRows.filter((row) => existingKeys.has(getQuickAddDuplicateRowKey(row)));
+}
+
 function extractQuickAddDefaultPoints(categoryRow, categoryName) {
   return getCategoryDefaultPoints(categoryName, categoryRow);
 }
@@ -3498,7 +3627,7 @@ async function saveQuickAddLogs({ closeAfterSave = false } = {}) {
     return;
   }
 
-  const inserts = [];
+  let inserts = [];
   selectedIds.forEach((id) => {
     selectedDates.forEach((date) => {
       inserts.push({
@@ -3514,10 +3643,42 @@ async function saveQuickAddLogs({ closeAfterSave = false } = {}) {
     });
   });
 
+  let skippedDuplicateCount = 0;
+  try {
+    const duplicateRows = await findQuickAddDuplicateLogs({
+      rows: inserts,
+      studioId: activeStudioId,
+      category,
+      points: resolvedPoints
+    });
+    if (duplicateRows.length) {
+      const duplicateChoice = await askQuickAddDuplicateLogChoice(duplicateRows);
+      if (duplicateChoice === "cancel") {
+        setQuickAddStatus("Submission paused. Deselect the duplicate dates, or submit again and choose Add duplicates anyway.", "error");
+        return;
+      }
+      if (duplicateChoice === "skip-duplicates") {
+        const duplicateKeys = new Set(duplicateRows.map(getQuickAddDuplicateRowKey).filter(Boolean));
+        const originalCount = inserts.length;
+        inserts = inserts.filter((row) => !duplicateKeys.has(getQuickAddDuplicateRowKey(row)));
+        skippedDuplicateCount = originalCount - inserts.length;
+        if (!inserts.length) {
+          setQuickAddStatus("All selected logs were duplicates. No logs were added.", "error");
+          return;
+        }
+      }
+    }
+  } catch (duplicateCheckError) {
+    console.error("Quick Add duplicate check failed:", duplicateCheckError);
+    setQuickAddStatus("Unable to verify duplicates. No logs were submitted.", "error");
+    return;
+  }
+
+  const insertedStudentIds = Array.from(new Set(inserts.map((row) => String(row.userId || "").trim()).filter(Boolean)));
   const buttons = [quickAddSubmitAnother, quickAddSubmitClose].filter(Boolean);
   buttons.forEach((button) => { button.disabled = true; });
   try {
-    const levelSnapshotsBefore = await fetchStudentLevelSnapshots(selectedIds);
+    const levelSnapshotsBefore = await fetchStudentLevelSnapshots(insertedStudentIds);
     const { error } = await supabase.from("logs").insert(inserts);
     if (error) {
       console.error("Quick Add failed:", error);
@@ -3531,7 +3692,7 @@ async function saveQuickAddLogs({ closeAfterSave = false } = {}) {
     });
 
     let levelNotificationFailed = false;
-    for (const studentId of selectedIds) {
+    for (const studentId of insertedStudentIds) {
       console.log("Quick Add recalculating student", studentId, activeStudioId);
       const { data: recalcData, error: recalcError } = await supabase.rpc("recalculate_user_points_and_level", {
         p_studio_id: activeStudioId,
@@ -3559,7 +3720,10 @@ async function saveQuickAddLogs({ closeAfterSave = false } = {}) {
       }
     }
 
-    const successMessage = `Logged ${inserts.length} entr${inserts.length === 1 ? "y" : "ies"} across ${selectedIds.length} student(s).`;
+    const skippedMessage = skippedDuplicateCount
+      ? ` Skipped ${skippedDuplicateCount} duplicate ${skippedDuplicateCount === 1 ? "log" : "logs"}.`
+      : "";
+    const successMessage = `Logged ${inserts.length} entr${inserts.length === 1 ? "y" : "ies"} across ${insertedStudentIds.length} student(s).${skippedMessage}`;
     if (closeAfterSave) {
       if (levelNotificationFailed) {
         setQuickAddStatus("Points saved, but level completion notification failed.", "warning");

@@ -33,6 +33,37 @@
     statusEl.style.color = isError ? "#c62828" : "#0b7a3a";
   }
 
+  async function findDuplicateLog(payload) {
+    const userId = String(payload?.userId || "").trim();
+    const studioId = String(payload?.studio_id || "").trim();
+    const date = String(payload?.date || "").slice(0, 10);
+    const category = String(payload?.category || "").trim().toLowerCase();
+    const points = Number(payload?.points);
+    if (!userId || !studioId || !date || !category || !Number.isFinite(points)) return null;
+
+    const { data, error } = await supabase
+      .from("logs")
+      .select("id,userId,date,category,points,status")
+      .eq("studio_id", studioId)
+      .eq("userId", userId)
+      .eq("date", date)
+      .or("status.is.null,status.neq.rejected");
+    if (error) throw error;
+
+    return (data || []).find((row) =>
+      String(row?.category || "").trim().toLowerCase() === category &&
+      Number(row?.points) === points
+    ) || null;
+  }
+
+  async function confirmDuplicateLog(payload) {
+    const duplicate = await findDuplicateLog(payload);
+    if (!duplicate) return true;
+    return window.confirm(
+      `Duplicate log found:\n\n${payload.date} - ${payload.category} (${payload.points} pts)\n\nAre you sure you want to add a double? Choose Cancel to go back and change the date.`
+    );
+  }
+
   function parseRoles(profile) {
     const roleSet = new Set();
     if (profile && typeof profile.role === "string") {
@@ -247,6 +278,20 @@
       status: "approved",
       created_by: currentUserId
     };
+
+    try {
+      const proceed = await confirmDuplicateLog(payload);
+      if (!proceed) {
+        if (submitBtn) submitBtn.disabled = false;
+        setStatus("Submission paused. Change the date, or submit again to add the duplicate.", true);
+        return;
+      }
+    } catch (duplicateCheckError) {
+      console.error("Quick log duplicate check error:", duplicateCheckError);
+      if (submitBtn) submitBtn.disabled = false;
+      setStatus("Unable to verify duplicates. No log was submitted.", true);
+      return;
+    }
 
     const { error } = await supabase.from("logs").insert([payload]);
     if (submitBtn) submitBtn.disabled = false;
