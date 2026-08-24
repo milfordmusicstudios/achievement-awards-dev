@@ -61,7 +61,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       inactiveStudentsRemoved: 0,
       finalLeaderboardStudentsRendered: placements.length,
       activeStatusFieldsUsed: ["get_leaderboard_students RPC", "users.active = true", "users.deactivated_at is null", "users.showonleaderboard is not false"],
-      dataSource: "get_leaderboard_students RPC (with users-table fallback)"
+      dataSource: "get_leaderboard_students RPC"
     });
     renderAvatars(placements);
     initLeaderboardZoom(placements);
@@ -137,27 +137,20 @@ function renderLevelBars(container, levelsDesc) {
 }
 
 async function fetchLeaderboardStudents(studioId) {
-  try {
-    const { data, error } = await supabase.rpc("get_leaderboard_students", {
-      p_studio_id: studioId
-    });
-    if (error) throw error;
-
-    const rpcStudents = (data || []).map(normalizeLeaderboardStudentRow);
-    if (Array.isArray(rpcStudents) && rpcStudents.length) {
-      console.log("[Leaderboard] loaded leaderboard students via RPC", {
-        totalStudentsFetched: rpcStudents.length,
-        dataSource: "get_leaderboard_students"
-      });
-      return rpcStudents;
-    }
-  } catch (err) {
-    console.warn("[Leaderboard] RPC student fetch failed, falling back to direct users query", err);
+  const { data, error } = await supabase.rpc("get_leaderboard_students", {
+    p_studio_id: studioId
+  });
+  if (error) {
+    console.error("[Leaderboard] RPC student fetch failed; leaderboard is closed", error);
+    throw error;
   }
 
-  const studentIds = await fetchStudentIds(studioId);
-  if (!studentIds.length) return [];
-  return fetchStudentsByIds(studentIds, studioId);
+  const rpcStudents = (data || []).map(normalizeLeaderboardStudentRow);
+  console.log("[Leaderboard] loaded leaderboard students via RPC", {
+    totalStudentsFetched: rpcStudents.length,
+    dataSource: "get_leaderboard_students"
+  });
+  return rpcStudents;
 }
 
 function normalizeLeaderboardStudentRow(row) {
@@ -174,61 +167,6 @@ function normalizeLeaderboardStudentRow(row) {
     deactivated_at: null,
     showonleaderboard: true
   };
-}
-
-async function fetchStudentIds(studioId) {
-  try {
-    const { data, error } = await supabase
-      .from("studio_members")
-      .select("user_id, roles")
-      .eq("studio_id", studioId)
-      .contains("roles", ["student"]);
-    if (error) throw error;
-    const ids = (data || []).map(r => r.user_id).filter(Boolean);
-    if (ids.length) return ids;
-  } catch (err) {
-    console.warn("[Leaderboard] studio_members fallback", err);
-  }
-
-  const { data: logs, error } = await supabase
-    .from("logs")
-    .select("userId")
-    .eq("studio_id", studioId)
-    .eq("status", "approved");
-  if (error) {
-    console.error("[Leaderboard] logs fallback failed", error);
-    return [];
-  }
-  return Array.from(new Set((logs || []).map(l => l.userId).filter(Boolean)));
-}
-
-async function fetchStudentsByIds(ids, studioId) {
-  if (!ids.length) return [];
-  const { data, error } = await supabase
-    .from("users")
-    .select("id, firstName, lastName, avatarUrl, roles, points, level, active, deactivated_at, showonleaderboard")
-    .in("id", ids)
-    .eq("studio_id", studioId)
-    .eq("active", true)
-    .is("deactivated_at", null)
-    .not("avatarUrl", "is", null)
-    .or("showonleaderboard.is.true,showonleaderboard.is.null");
-  if (error) {
-    console.error("[Leaderboard] users fetch failed", error);
-    return [];
-  }
-  const students = (data || []).filter(u => {
-    const roles = Array.isArray(u.roles) ? u.roles : [u.roles].filter(Boolean);
-    return roles.includes("student") && isActiveLeaderboardStudent(u) && hasProfileAvatar(u);
-  });
-  console.log("[Leaderboard] active student filter", {
-    totalStudentsFetched: ids.length,
-    activeStudentsReturnedFromUsersQuery: Array.isArray(data) ? data.length : 0,
-    inactiveStudentsRemoved: Math.max(0, ids.length - students.length),
-    finalLeaderboardStudentsRendered: students.length,
-    activeStatusFieldsUsed: ["active", "deactivated_at", "showonleaderboard"]
-  });
-  return students;
 }
 
 function isActiveLeaderboardStudent(student) {
