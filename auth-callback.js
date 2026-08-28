@@ -46,6 +46,12 @@ function hasSupabaseHashSession() {
   return Boolean(hash.get("access_token") || hash.get("refresh_token"));
 }
 
+function isPasswordRecoveryCallback() {
+  const search = new URLSearchParams(location.search || "");
+  const hash = new URLSearchParams((location.hash || "").replace(/^#/, ""));
+  return (search.get("type") || hash.get("type") || "").toLowerCase() === "recovery";
+}
+
 async function readCurrentSession(errorDetails) {
   const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
   if (sessionErr) {
@@ -98,9 +104,11 @@ async function validateInviteToken(token) {
     const token = getInviteToken();
     const pkceCode = getSupabasePkceCode();
     const hashSessionPresent = hasSupabaseHashSession();
+    const recoveryCallback = isPasswordRecoveryCallback();
     console.log("[AuthCallback] auth callback params:", {
       pkceCodePresent: Boolean(pkceCode),
-      hashSessionPresent
+      hashSessionPresent,
+      recoveryCallback
     });
 
     if (pkceCode && typeof supabase.auth.exchangeCodeForSession === "function") {
@@ -119,6 +127,11 @@ async function validateInviteToken(token) {
 
     if (!token) {
       if (session?.user) {
+        if (recoveryCallback) {
+          console.log("[AuthCallback] password recovery callback completed; redirecting to reset password");
+          window.location.replace("./reset-password.html");
+          return;
+        }
         console.log("[AuthCallback] auth callback completed without invite token; redirecting home");
         window.location.replace("./index.html");
         return;
