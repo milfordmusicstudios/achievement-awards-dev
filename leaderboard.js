@@ -13,6 +13,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const loadingText = document.getElementById("loadingMessage");
   const countEl = document.getElementById("leaderboardCount");
   const container = document.getElementById("leaderboardBars") || document.getElementById("leaderboardContainer");
+  let levelBarsRendered = false;
 
   const messages = [
     "🎶 Loading the rhythm of success…",
@@ -41,12 +42,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     window.__LEVELS_ASC__ = [...levels];
     const levelsDesc = [...levels].sort((a, b) => (b.minPoints ?? 0) - (a.minPoints ?? 0));
 
+    clearLeaderboardEmptyMessage();
     renderLevelBars(container, levelsDesc);
+    levelBarsRendered = true;
 
     const students = await fetchLeaderboardStudents(activeStudioId);
     if (!students.length) {
-      if (container) container.innerHTML = "<p class=\"empty-state\">No students found for this studio.</p>";
+      showLeaderboardEmptyMessage("No students found for this studio.");
       if (countEl) countEl.textContent = "Showing 0 students";
+      initLeaderboardZoom([]);
       if (popup) popup.style.display = "none";
       return;
     }
@@ -70,11 +74,33 @@ document.addEventListener("DOMContentLoaded", async () => {
     window.addEventListener("resize", reposition);
   } catch (err) {
     console.error("[Leaderboard] load failed", err);
-    if (container) container.innerHTML = "<p class=\"empty-state\">Failed to load leaderboard.</p>";
+    if (levelBarsRendered) {
+      showLeaderboardEmptyMessage("Failed to load leaderboard.");
+    } else if (container) {
+      container.innerHTML = "<p class=\"empty-state\">Failed to load leaderboard.</p>";
+    }
   } finally {
     if (popup) popup.style.display = "none";
   }
 });
+
+function showLeaderboardEmptyMessage(message) {
+  const wrapper = document.querySelector(".leaderboard-scroll-wrapper");
+  if (!wrapper) return;
+
+  let messageEl = document.getElementById("leaderboardEmptyMessage");
+  if (!messageEl) {
+    messageEl = document.createElement("p");
+    messageEl.id = "leaderboardEmptyMessage";
+    messageEl.className = "empty-state leaderboard-empty-message";
+    wrapper.insertAdjacentElement("afterend", messageEl);
+  }
+  messageEl.textContent = message;
+}
+
+function clearLeaderboardEmptyMessage() {
+  document.getElementById("leaderboardEmptyMessage")?.remove();
+}
 
 function renderLevelBars(container, levelsDesc) {
   if (!container) return;
